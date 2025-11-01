@@ -199,28 +199,58 @@ jobs:
         echo "Signed APK Size: $SIGNED_SIZE"
         echo "Signed APK verified"
         
+    - name: Rename APK for User
+      id: rename-apk
+      run: |
+        cd android-project
+        
+        SIGNED_APK="${{ steps.sign-apk.outputs.SIGNED_APK_PATH }}"
+        APP_NAME="${{ github.event.client_payload.name || github.event.inputs.name }}"
+        
+        # Create a user-friendly filename
+        FINAL_APK_NAME="${APP_NAME// /-}-signed.apk"
+        FINAL_APK_PATH="$(dirname "$SIGNED_APK")/$FINAL_APK_NAME"
+        
+        # Copy the signed APK to the new name
+        cp "$SIGNED_APK" "$FINAL_APK_PATH"
+        
+        echo "FINAL_APK_PATH=$FINAL_APK_PATH" >> $GITHUB_OUTPUT
+        echo "FINAL_APK_NAME=$FINAL_APK_NAME" >> $GITHUB_OUTPUT
+        echo "Renamed APK to: $FINAL_APK_NAME"
+        
     - name: Upload Signed APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: apk-${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
-        path: android-project/${{ steps.sign-apk.outputs.SIGNED_APK_PATH }}
+        name: ${{ github.event.client_payload.name || github.event.inputs.name }}-APK
+        path: android-project/${{ steps.rename-apk.outputs.FINAL_APK_PATH }}
         retention-days: 7
+        if-no-files-found: error
         
     - name: Create Build Summary
       run: |
         echo "APK Build Completed Successfully!"
-        echo "### APK Build Results" >> $GITHUB_STEP_SUMMARY
+        echo "### 📱 APK Build Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Build Details:**" >> $GITHUB_STEP_SUMMARY
-        echo "- App: ${{ github.event.client_payload.name || github.event.inputs.name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- App Name: ${{ github.event.client_payload.name || github.event.inputs.name }}" >> $GITHUB_STEP_SUMMARY
         echo "- Domain: ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}" >> $GITHUB_STEP_SUMMARY
-        echo "- APK File: ${{ steps.sign-apk.outputs.SIGNED_APK_PATH }}" >> $GITHUB_STEP_SUMMARY
-        echo "- Size: ${{ steps.find-apk.outputs.APK_SIZE }} (unsigned) -> ${{ steps.verify-apk.outputs.SIGNED_SIZE }} (signed)" >> $GITHUB_STEP_SUMMARY
+        echo "- Build ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}" >> $GITHUB_STEP_SUMMARY
+        echo "- APK File: ${{ steps.rename-apk.outputs.FINAL_APK_NAME }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Size: ${{ steps.find-apk.outputs.APK_SIZE }} (unsigned) → ${{ steps.verify-apk.outputs.SIGNED_SIZE }} (signed)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Download:**" >> $GITHUB_STEP_SUMMARY
-        echo "The signed APK is available in the artifacts below." >> $GITHUB_STEP_SUMMARY
+        echo "**📥 Installation Instructions:**" >> $GITHUB_STEP_SUMMARY
+        echo "1. Download the APK from the artifacts below" >> $GITHUB_STEP_SUMMARY
+        echo "2. On Android: Enable 'Install from Unknown Sources' in Settings" >> $GITHUB_STEP_SUMMARY
+        echo "3. Open the downloaded APK file to install" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "> Note: The signature warnings are normal and don't affect APK functionality." >> $GITHUB_STEP_SUMMARY
+        echo "**🔑 Signing Key Info:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Alias: \`android\`" >> $GITHUB_STEP_SUMMARY
+        echo "- Password: \`123321\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "> ⚠️ **Important:** If you get 'App not installed' error:" >> $GITHUB_STEP_SUMMARY
+        echo "> - Make sure you enabled 'Install from Unknown Sources'" >> $GITHUB_STEP_SUMMARY
+        echo "> - Unzip the downloaded artifact file first if it's a ZIP" >> $GITHUB_STEP_SUMMARY
+        echo "> - The APK should be named \`${{ steps.rename-apk.outputs.FINAL_APK_NAME }}\`" >> $GITHUB_STEP_SUMMARY
         
     - name: Notify Success via Webhook
       if: success() && env.WEBHOOK_URL
