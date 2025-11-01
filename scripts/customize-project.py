@@ -171,12 +171,14 @@ def main():
             
             log(f"Cleaned hostname: {clean_host}")
             
-            # Split by dots and reverse for package name convention
+            # Split by dots and create package name
             parts = clean_host.split('.')
             if len(parts) >= 2:
-                # Standard domain like "example.com" -> "com.example"
-                # Take TLD and first part of domain
-                package_name = f"{parts[-1]}.{parts[0]}"
+                # Reverse the entire domain for package name
+                # example.com -> com.example
+                # sub.example.com -> com.example.sub
+                reversed_parts = list(reversed(parts))
+                package_name = '.'.join(reversed_parts)
             else:
                 # Single part domain, use com. prefix
                 package_name = f"com.{clean_host}"
@@ -219,7 +221,9 @@ def main():
             
             parts = clean_host.split('.')
             if len(parts) >= 2:
-                package_name = f"{parts[-1]}.{parts[0]}"
+                # Reverse the entire domain for package name
+                reversed_parts = list(reversed(parts))
+                package_name = '.'.join(reversed_parts)
             else:
                 package_name = f"com.{clean_host}"
             
