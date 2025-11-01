@@ -80,32 +80,37 @@ jobs:
         echo "  THEME_COLOR_DARK: $THEME_COLOR_DARK"
         echo "  BACKGROUND_COLOR: $BACKGROUND_COLOR"
         
-        # Construct full launch URL if only hostname provided
         if [ "$LAUNCH_URL" = "/" ] || [ -z "$LAUNCH_URL" ]; then
           LAUNCH_URL="https://$HOST_NAME/"
           echo "Generated LAUNCH_URL: $LAUNCH_URL"
         fi
         
-        # Copy the customize script to the android-project directory
         cp scripts/customize-project.py android-project/
         
-        # Run the customization script from within android-project
         cd android-project
+        
+        export BUILD_ID="$BUILD_ID"
+        export HOST_NAME="$HOST_NAME"
+        export LAUNCH_URL="$LAUNCH_URL"
+        export APP_NAME="$APP_NAME"
+        export LAUNCHER_NAME="$LAUNCHER_NAME"
+        export THEME_COLOR="$THEME_COLOR"
+        export THEME_COLOR_DARK="$THEME_COLOR_DARK"
+        export BACKGROUND_COLOR="$BACKGROUND_COLOR"
+        
         python3 customize-project.py
 
     - name: Build and Sign APK
       run: |
         cd android-project
         
-        # Fix permissions and build
         chmod +x gradlew
+        
         ./gradlew clean assembleRelease --no-daemon --stacktrace
         
-        # Find and sign APK
         APK_PATH=$(find . -name "app-release-unsigned.apk" -o -name "app-release.apk" | head -1)
         echo "Found APK: $APK_PATH"
         
-        # Sign the APK
         SIGNED_APK="app-signed.apk"
         APKSIGNER_PATH=$(find "$ANDROID_HOME" -name "apksigner" | head -1)
         
@@ -118,11 +123,9 @@ jobs:
           --out "$SIGNED_APK" \
           "$APK_PATH"
         
-        # Verify signature
         echo "Verifying signature..."
         "$APKSIGNER_PATH" verify "$SIGNED_APK"
         
-        # Rename for user
         APP_NAME="${{ github.event.client_payload.name || github.event.inputs.name }}"
         CLEAN_NAME=$(echo "$APP_NAME" | tr ' ' '-' | tr -cd '[:alnum:]-._')
         FINAL_APK="${CLEAN_NAME}.apk"
@@ -150,5 +153,22 @@ jobs:
         echo "**Signing Key:**" >> $GITHUB_STEP_SUMMARY
         echo "- Alias: \`android\`" >> $GITHUB_STEP_SUMMARY
         echo "- Password: \`123321\`" >> $GITHUB_STEP_SUMMARY
+        
+    - name: Notify Success via Webhook
+      if: success() && env.WEBHOOK_URL
+      run: |
+        python scripts/notify-webhook.py success
+      env:
+        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+        ARTIFACT_NAME: ${{ github.event.client_payload.name || github.event.inputs.name }}-APK
+        
+    - name: Notify Failure via Webhook
+      if: failure() && env.WEBHOOK_URL
+      run: |
+        python scripts/notify-webhook.py failure
+      env:
+        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
 
 
