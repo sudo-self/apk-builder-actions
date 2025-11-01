@@ -40,6 +40,9 @@ jobs:
     timeout-minutes: 15
     
     steps:
+    - name: Checkout APK Builder repo (with scripts)
+      uses: actions/checkout@v4
+      
     - name: Checkout Template APK repo
       uses: actions/checkout@v4
       with:
@@ -67,12 +70,28 @@ jobs:
         THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark || github.event.inputs.themeColorDark || '#000000' }}
         BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor || github.event.inputs.backgroundColor || '#FFFFFF' }}
       run: |
-        cd android-project
-        echo "Customizing Android project..."
+        echo "Customizing Android project with:"
+        echo "  BUILD_ID: $BUILD_ID"
+        echo "  HOST_NAME: $HOST_NAME"
+        echo "  LAUNCH_URL: $LAUNCH_URL"
+        echo "  APP_NAME: $APP_NAME"
+        echo "  LAUNCHER_NAME: $LAUNCHER_NAME"
+        echo "  THEME_COLOR: $THEME_COLOR"
+        echo "  THEME_COLOR_DARK: $THEME_COLOR_DARK"
+        echo "  BACKGROUND_COLOR: $BACKGROUND_COLOR"
+        
+        # Construct full launch URL if only hostname provided
         if [ "$LAUNCH_URL" = "/" ] || [ -z "$LAUNCH_URL" ]; then
           LAUNCH_URL="https://$HOST_NAME/"
+          echo "Generated LAUNCH_URL: $LAUNCH_URL"
         fi
-        python3 scripts/customize-project.py
+        
+        # Copy the customize script to the android-project directory
+        cp scripts/customize-project.py android-project/
+        
+        # Run the customization script from within android-project
+        cd android-project
+        python3 customize-project.py
 
     - name: Build and Sign APK
       run: |
@@ -117,5 +136,19 @@ jobs:
         name: ${{ github.event.client_payload.name || github.event.inputs.name }}-APK
         path: android-project/*.apk
         retention-days: 7
+
+    - name: Create Build Summary
+      run: |
+        echo "### ✅ APK Build Complete" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**App:** ${{ github.event.client_payload.name || github.event.inputs.name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Domain:** ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Theme:** ${{ github.event.client_payload.themeColor || github.event.inputs.themeColor }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📱 **Download the APK from the artifacts below**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Signing Key:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Alias: \`android\`" >> $GITHUB_STEP_SUMMARY
+        echo "- Password: \`123321\`" >> $GITHUB_STEP_SUMMARY
 
 
