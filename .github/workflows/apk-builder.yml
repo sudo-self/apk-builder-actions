@@ -134,10 +134,6 @@ jobs:
         echo "SIGNED_APK_PATH=$SIGNED_APK" >> $GITHUB_OUTPUT
         echo "✅ APK signed successfully"
         
-        # Quick verification (ignore warnings)
-        echo "🔍 Quick signature verification..."
-        "$APKSIGNER_PATH" verify "$SIGNED_APK" 2>/dev/null && echo "✅ Signature verified" || echo "⚠️ Verification had warnings"
-        
     - name: Verify Signed APK Exists
       id: verify-apk
       run: |
@@ -156,18 +152,15 @@ jobs:
         fi
         
         SIGNED_SIZE=$(du -h "$SIGNED_APK" | cut -f1)
+        echo "SIGNED_SIZE=$SIGNED_SIZE" >> $GITHUB_OUTPUT
         echo "📊 Signed APK Size: $SIGNED_SIZE"
         echo "✅ Signed APK verified"
-        
-        # Set outputs for upload
-        echo "FULL_APK_PATH=android-project/$SIGNED_APK" >> $GITHUB_OUTPUT
-        echo "APK_FILENAME=$(basename "$SIGNED_APK")" >> $GITHUB_OUTPUT
         
     - name: Upload Signed APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: apk-${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
-        path: ${{ steps.verify-apk.outputs.FULL_APK_PATH }}
+        path: android-project/${{ steps.sign-apk.outputs.SIGNED_APK_PATH }}
         retention-days: 7
         
     - name: Create Build Summary
@@ -178,12 +171,13 @@ jobs:
         echo "**Build Details:**" >> $GITHUB_STEP_SUMMARY
         echo "- 🔧 App: ${{ github.event.client_payload.name || github.event.inputs.name }}" >> $GITHUB_STEP_SUMMARY
         echo "- 🌐 Domain: ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}" >> $GITHUB_STEP_SUMMARY
-        echo "- 📦 APK File: ${{ steps.verify-apk.outputs.APK_FILENAME }}" >> $GITHUB_STEP_SUMMARY
-        echo "- 📊 Size: ${{ steps.find-apk.outputs.APK_SIZE }} (unsigned) → ${{ steps.verify-apk.outputs.SIGNED_SIZE }}" >> $GITHUB_STEP_SUMMARY
+        echo "- 📦 APK File: ${{ steps.sign-apk.outputs.SIGNED_APK_PATH }}" >> $GITHUB_STEP_SUMMARY
+        echo "- 📊 Size: ${{ steps.find-apk.outputs.APK_SIZE }} (unsigned) → ${{ steps.verify-apk.outputs.SIGNED_SIZE }} (signed)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Download:**" >> $GITHUB_STEP_SUMMARY
         echo "The signed APK is available in the artifacts below." >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
+        echo "> ⚠️ Note: The signature warnings are normal and don't affect APK functionality." >> $GITHUB_STEP_SUMMARY
         echo "> ⚠️ Note: The signature warnings are normal and don't affect APK functionality." >> $GITHUB_STEP_SUMMARY
         
     - name: Notify Success via Webhook
