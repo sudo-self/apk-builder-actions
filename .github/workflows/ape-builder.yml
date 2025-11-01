@@ -1,0 +1,94 @@
+name: APK Builder
+
+on:
+  repository_dispatch:
+    types: [apk_build]
+  workflow_dispatch: 
+    inputs:
+      buildId:
+        description: 'Build ID'
+        required: true
+      hostName:
+        description: 'Host name'
+        required: true
+      name:
+        description: 'App name'
+        required: true
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+    - name: Checkout APK Builder repo
+      uses: actions/checkout@v4
+      with:
+        path: builder-scripts
+      
+    - name: Checkout Template APK repo
+      uses: actions/checkout@v4
+      with:
+        repository: sudo-self/template_apk
+        token: ${{ secrets.GITHUB_TOKEN }}
+        path: android-project
+        
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+        
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      
+    - name: Download custom icon
+      id: download-icon
+      if: ${{ github.event.client_payload.iconUrl }}
+      run: |
+        cd builder-scripts
+        python scripts/download-icon.py "${{ github.event.client_payload.iconUrl }}" "${{ github.event.client_payload.buildId }}"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Customize Android Project
+      run: |
+        cd builder-scripts
+        python scripts/customize-project.py
+        
+    - name: Build APK
+      run: |
+        cd android-project
+        chmod +x gradlew
+        ./gradlew assembleRelease --no-daemon --stacktrace
+        
+    - name: Find and Sign APK
+      run: |
+        cd builder-scripts
+        python scripts/process-apk.py
+        
+    - name: Upload APK to Cloud Storage
+      run: |
+        cd builder-scripts
+        python scripts/upload-apk.py "${{ github.event.client_payload.buildId }}"
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_REGION: ${{ secrets.AWS_REGION }}
+        S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        
+    - name: Update Build Status
+      if: always()
+      run: |
+        cd builder-scripts
+        python scripts/update-status.py "${{ job.status }}"
+      env:
+        WEBHOOK_URL: ${{ secrets.STATUS_WEBHOOK_URL }}
+        
+    - name: Upload APK as Artifact (Fallback)
+      if: always() && steps.upload-apk.outcome != 'success'
+      uses: actions/upload-artifact@v4
+      with:
+        name: built-apk-${{ github.event.client_payload.buildId }}
+        path: android-project/app/build/outputs/apk/release/*.apk
+        retention-days: 1
