@@ -1,9 +1,1 @@
-apk-builder-actions/  
-├── .github/  
-│ └── workflows/  
-│ └── apk-builder.yml ├── scripts/  
-│ ├── customize-project.py  
-│ └── notify-webhook.py  
-├── .gitignore  
-  
-└── YOU\_ARE\_HERE.md
+# [![APK Builder](https://github.com/sudo-self/apk-builder-actions/actions/workflows/apk-builder.yml/badge.svg)](https://github.com/sudo-self/apk-builder-actions/actions/workflows/apk-builder.yml)<br>
