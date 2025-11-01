@@ -49,9 +49,6 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         path: android-project
 
-    - name: Copy Signing Key
-      run: cp android-project/android.keystore android-project/android.keystore
-
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
@@ -73,29 +70,25 @@ jobs:
         BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor || github.event.inputs.backgroundColor }}
       run: |
         cd android-project
-        cp ../scripts/customize-project.py .
-        python3 customize-project.py
+        python3 ../scripts/customize-project.py
 
-    # ✅ BUILD EXACTLY ONE UNSIGNED APK
+    # Build exactly one unsigned APK
     - name: Build Release APK
       run: |
         cd android-project
         chmod +x gradlew
         ./gradlew clean assembleRelease --no-daemon --stacktrace
 
-        echo "=== Removing junk APKs ==="
-        # Delete ALL extra APKs the template creates except *release-unsigned.apk
+        # Keep only the main unsigned APK
         find app/build/outputs/apk/release -type f ! -name "app-release-unsigned.apk" -delete
-
-        echo "Remaining files:"
+        echo "Remaining APKs:"
         ls -l app/build/outputs/apk/release
 
-    # ✅ SIGN + ZIPALIGN GUARANTEED ONE FINAL APK
+    # Sign and Zipalign
     - name: Sign and Align APK
       run: |
         cd android-project
-
-        APK="$(find app/build/outputs/apk/release -name app-release-unsigned.apk | head -1)"
+        APK=$(find app/build/outputs/apk/release -name app-release-unsigned.apk | head -1)
         echo "Using unsigned APK: $APK"
 
         APKSIGNER=$(find "$ANDROID_HOME" -name apksigner | head -1)
@@ -110,8 +103,7 @@ jobs:
           --ks-pass pass:123321 \
           --ks-key-alias android \
           --key-pass pass:123321 \
-          --out "$SIGNED" \
-          "$APK"
+          --out "$SIGNED" "$APK"
 
         echo "=== Verifying signature ==="
         "$APKSIGNER" verify "$SIGNED"
@@ -121,9 +113,9 @@ jobs:
 
         CLEAN_NAME=$(echo "${{ github.event.client_payload.name || github.event.inputs.name }}" | tr ' ' '-' | tr -cd '[:alnum:]-._')
         mv "$FINAL" "../${CLEAN_NAME}.apk"
-
         echo "✅ FINAL APK: ../${CLEAN_NAME}.apk"
 
+    # Upload exactly one artifact
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
@@ -131,11 +123,9 @@ jobs:
         path: ${{ github.event.client_payload.name || github.event.inputs.name }}.apk
         retention-days: 7
 
-
     - name: Notify Success via Webhook
       if: success() && env.WEBHOOK_URL
-      run: |
-        python scripts/notify-webhook.py success
+      run: python scripts/notify-webhook.py success
       env:
         WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
         BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
@@ -143,11 +133,11 @@ jobs:
 
     - name: Notify Failure via Webhook
       if: failure() && env.WEBHOOK_URL
-      run: |
-        python scripts/notify-webhook.py failure
+      run: python scripts/notify-webhook.py failure
       env:
         WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
         BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+
 
 
 
