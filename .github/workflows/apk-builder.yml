@@ -84,7 +84,7 @@ jobs:
       env:
         BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
         HOST_NAME: ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}
-        LAUNCH_URL: ${{ github.event.client_payload.launchUrl || github.event.inputs.launchUrl || 'https://' + (github.event.client_payload.hostName || github.event.inputs.hostName) + '/' }}
+        LAUNCH_URL: ${{ github.event.client_payload.launchUrl || github.event.inputs.launchUrl || '/' }}
         APP_NAME: ${{ github.event.client_payload.name || github.event.inputs.name }}
         LAUNCHER_NAME: ${{ github.event.client_payload.launcherName || github.event.inputs.launcherName }}
         THEME_COLOR: ${{ github.event.client_payload.themeColor || github.event.inputs.themeColor || '#171717' }}
@@ -100,6 +100,13 @@ jobs:
         echo "  THEME_COLOR: $THEME_COLOR"
         echo "  THEME_COLOR_DARK: $THEME_COLOR_DARK"
         echo "  BACKGROUND_COLOR: $BACKGROUND_COLOR"
+        
+        # Construct full launch URL if only hostname provided
+        if [ "$LAUNCH_URL" = "/" ] || [ -z "$LAUNCH_URL" ]; then
+          LAUNCH_URL="https://$HOST_NAME/"
+          echo "Generated LAUNCH_URL: $LAUNCH_URL"
+        fi
+        
         python scripts/customize-project.py
 
     - name: Verify Android Project Structure
