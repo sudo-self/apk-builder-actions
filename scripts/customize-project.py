@@ -2,94 +2,60 @@
 import json
 import os
 import re
-import sys
 
 def load_payload():
     """Load build configuration from GitHub event"""
-    event_path = os.environ.get('GITHUB_EVENT_PATH')
-    
-    if event_path and os.path.exists(event_path):
-        with open(event_path, 'r') as f:
+    # For repository_dispatch events
+    if 'GITHUB_EVENT_NAME' in os.environ and os.environ['GITHUB_EVENT_NAME'] == 'repository_dispatch':
+        with open(os.environ['GITHUB_EVENT_PATH'], 'r') as f:
             event_data = json.load(f)
-        
-        # For repository_dispatch events
-        if 'client_payload' in event_data:
-            return event_data['client_payload']
+        return event_data.get('client_payload', {})
     
     # For workflow_dispatch events
     if 'GITHUB_EVENT_NAME' in os.environ and os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch':
-        if event_path and os.path.exists(event_path):
-            with open(event_path, 'r') as f:
-                event_data = json.load(f)
-            return event_data.get('inputs', {})
+        with open(os.environ['GITHUB_EVENT_PATH'], 'r') as f:
+            event_data = json.load(f)
+        return event_data.get('inputs', {})
     
-    # Fallback for testing
-    return {
-        'buildId': os.environ.get('GITHUB_RUN_ID', 'test-build'),
-        'hostName': 'example.com',
-        'launchUrl': '/',
-        'name': 'My PWA',
-        'launcherName': 'My PWA',
-        'themeColor': '#FFFFFF',
-        'themeColorDark': '#000000',
-        'backgroundColor': '#FFFFFF'
-    }
+    return {}
 
 def customize_build_gradle(project_path, config):
-    """Modify ONLY the TWA settings in build.gradle"""
+    """Modify TWA settings in build.gradle"""
     build_gradle_path = os.path.join(project_path, 'app/build.gradle')
-    
-    if not os.path.exists(build_gradle_path):
-        print(f"❌ build.gradle not found at: {build_gradle_path}")
-        return False
     
     with open(build_gradle_path, 'r') as f:
         content = f.read()
     
-    print(f"🔧 Customizing TWA settings for: {config['hostName']}")
+    print(f"🔧 Customizing for: {config.get('hostName', 'example.com')}")
     
-    # Replace ONLY TWA settings - leave everything else including icons
+    # Replace TWA settings
     replacements = {
-        r"hostName:\s*'[^']*'": f"hostName: '{config['hostName']}'",
+        r"hostName:\s*'[^']*'": f"hostName: '{config.get('hostName', 'example.com')}'",
         r"launchUrl:\s*'[^']*'": f"launchUrl: '{config.get('launchUrl', '/')}'",
-        r"name:\s*'[^']*'": f"name: '{config['name']}'",
-        r"launcherName:\s*'[^']*'": f"launcherName: '{config.get('launcherName', config['name'])}'",
+        r"name:\s*'[^']*'": f"name: '{config.get('name', 'My PWA')}'",
+        r"launcherName:\s*'[^']*'": f"launcherName: '{config.get('launcherName', config.get('name', 'My PWA'))}'",
         r"themeColor:\s*'[^']*'": f"themeColor: '{config.get('themeColor', '#FFFFFF')}'",
-        r"themeColorDark:\s*'[^']*'": f"themeColorDark: '{config.get('themeColorDark', '#000000')}'",
         r"backgroundColor:\s*'[^']*'": f"backgroundColor: '{config.get('backgroundColor', '#FFFFFF')}'"
     }
     
-    changes_made = 0
     for pattern, replacement in replacements.items():
-        if re.search(pattern, content):
-            content = re.sub(pattern, replacement, content)
-            changes_made += 1
-            print(f"✅ Updated: {pattern.split(':')[0].strip()}")
-        else:
-            print(f"⚠️  Pattern not found: {pattern}")
+        content = re.sub(pattern, replacement, content)
     
     with open(build_gradle_path, 'w') as f:
         f.write(content)
     
-    print(f"✅ Updated {changes_made} TWA settings in build.gradle")
-    return changes_made > 0
+    print("✅ build.gradle customized")
 
 def main():
     config = load_payload()
     project_path = "android-project"
     
-    print("🎯 Starting APK customization (icons left unchanged)")
-    print(f"📱 App: {config['name']}")
-    print(f"🌐 Domain: {config['hostName']}")
+    if not config:
+        print("❌ No configuration found")
+        return
     
-    success = customize_build_gradle(project_path, config)
-    
-    if success:
-        print("✅ Project customization completed successfully")
-        print("ℹ️  Icons left as default template icons")
-    else:
-        print("❌ Project customization failed")
-        sys.exit(1)
+    customize_build_gradle(project_path, config)
+    print("✅ Project customization completed")
 
 if __name__ == "__main__":
     main()
