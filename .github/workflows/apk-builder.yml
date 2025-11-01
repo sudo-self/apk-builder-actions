@@ -3,7 +3,7 @@ name: APK Builder
 on:
   repository_dispatch:
     types: [apk_build]
-  workflow_dispatch: 
+  workflow_dispatch:
     inputs:
       buildId:
         description: 'Build ID'
@@ -23,8 +23,6 @@ jobs:
     steps:
     - name: Checkout APK Builder repo
       uses: actions/checkout@v4
-      with:
-        path: builder-scripts
       
     - name: Checkout Template APK repo
       uses: actions/checkout@v4
@@ -42,53 +40,49 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
       
-    - name: Download custom icon
-      id: download-icon
-      if: ${{ github.event.client_payload.iconUrl }}
-      run: |
-        cd builder-scripts
-        python scripts/download-icon.py "${{ github.event.client_payload.iconUrl }}" "${{ github.event.client_payload.buildId }}"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        
     - name: Customize Android Project
       run: |
-        cd builder-scripts
         python scripts/customize-project.py
-        
+      
     - name: Build APK
       run: |
         cd android-project
         chmod +x gradlew
         ./gradlew assembleRelease --no-daemon --stacktrace
         
-    - name: Find and Sign APK
+    - name: Find APK
+      id: find-apk
       run: |
-        cd builder-scripts
-        python scripts/process-apk.py
+        cd android-project
+        APK_PATH=$(find . -name "*.apk" -type f | head -1)
+        echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
+        echo "📦 Found APK: $APK_PATH"
         
-    - name: Upload APK to Cloud Storage
-      run: |
-        cd builder-scripts
-        python scripts/upload-apk.py "${{ github.event.client_payload.buildId }}"
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        AWS_REGION: ${{ secrets.AWS_REGION }}
-        S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        # Get APK size
+        APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
+        echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
+        echo "📊 APK Size: $APK_SIZE"
         
-    - name: Update Build Status
-      if: always()
-      run: |
-        cd builder-scripts
-        python scripts/update-status.py "${{ job.status }}"
-      env:
-        WEBHOOK_URL: ${{ secrets.STATUS_WEBHOOK_URL }}
-        
-    - name: Upload APK as Artifact (Fallback)
-      if: always() && steps.upload-apk.outcome != 'success'
+    - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: built-apk-${{ github.event.client_payload.buildId }}
-        path: android-project/app/build/outputs/apk/release/*.apk
-        retention-days: 1
+        name: apk-${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+        path: ${{ steps.find-apk.outputs.APK_PATH }}
+        retention-days: 7
+        
+    - name: Notify Success
+      if: success()
+      run: |
+        python scripts/notify-webhook.py success
+      env:
+        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+        ARTIFACT_NAME: apk-${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+        
+    - name: Notify Failure
+      if: failure()
+      run: |
+        python scripts/notify-webhook.py failure
+      env:
+        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
