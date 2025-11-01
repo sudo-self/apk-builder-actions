@@ -1,147 +1,175 @@
-name: Build Android APK
+name: APK Builder
 
 on:
+  repository_dispatch:
+    types: [apk_build]
   workflow_dispatch:
     inputs:
-      host_name:
-        description: 'Website URL'
+      buildId:
+        description: 'Build ID'
         required: true
-        default: 'https://example.com'
-      app_name:
-        description: 'App Name'  
+        default: 'test-build-123'
+      hostName:
+        description: 'Host name'
         required: true
-        default: 'My Web App'
-      launch_url:
-        description: 'Launch URL Path'
+        default: 'example.com'
+      name:
+        description: 'App name'
+        required: true
+        default: 'Test App'
+      launcherName:
+        description: 'Launcher name'
         required: false
-        default: '/'
-      theme_color:
-        description: 'Theme Color'
+        default: 'Test App'
+      themeColor:
+        description: 'Theme color'
         required: false
         default: '#171717'
-
-env:
-  BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-  HOST_NAME: ${{ inputs.host_name }}
-  APP_NAME: ${{ inputs.app_name }}
-  LAUNCH_URL: ${{ inputs.launch_url }}
-  THEME_COLOR: ${{ inputs.theme_color }}
-  THEME_COLOR_DARK: '#000000'
-  BACKGROUND_COLOR: '#FFFFFF'
+      themeColorDark:
+        description: 'Theme color dark'
+        required: false
+        default: '#000000'
+      backgroundColor:
+        description: 'Background color'
+        required: false
+        default: '#FFFFFF'
 
 jobs:
-  build-android:
+  build-apk:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     
     steps:
-    - name: Checkout repository
+    - name: Checkout APK Builder repo (with scripts)
       uses: actions/checkout@v4
-
-    - name: Clone APK Template
-      run: |
-        git clone https://github.com/sudo-self/template_apk android-project
-        echo "✅ Template cloned successfully"
-
+      
+    - name: Checkout Template APK repo
+      uses: actions/checkout@v4
+      with:
+        repository: sudo-self/template_apk
+        token: ${{ secrets.GITHUB_TOKEN }}
+        path: android-project
+        
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '17'
-
+        
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
-
-    - name: Verify Keystore Exists
-      run: |
-        cd android-project
-        if [ -f "android.keystore" ]; then
-          echo "✅ Keystore found in template"
-          ls -la android.keystore
-        else
-          echo "❌ Keystore not found in template"
-          exit 1
-        fi
-
-    - name: Make gradlew executable
-      run: |
-        cd android-project
-        chmod +x gradlew
-        echo "✅ Made gradlew executable"
-
+      
     - name: Customize Android Project
+      env:
+        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+        HOST_NAME: ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}
+        LAUNCH_URL: ${{ github.event.client_payload.launchUrl || github.event.inputs.launchUrl || '/' }}
+        APP_NAME: ${{ github.event.client_payload.name || github.event.inputs.name }}
+        LAUNCHER_NAME: ${{ github.event.client_payload.launcherName || github.event.inputs.launcherName }}
+        THEME_COLOR: ${{ github.event.client_payload.themeColor || github.event.inputs.themeColor || '#171717' }}
+        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark || github.event.inputs.themeColorDark || '#000000' }}
+        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor || github.event.inputs.backgroundColor || '#FFFFFF' }}
       run: |
-        echo "Customizing Android project..."
-        python3 scripts/customize-project.py
-        echo "✅ Project customization completed"
+        echo "Customizing Android project with:"
+        echo "  BUILD_ID: $BUILD_ID"
+        echo "  HOST_NAME: $HOST_NAME"
+        echo "  LAUNCH_URL: $LAUNCH_URL"
+        echo "  APP_NAME: $APP_NAME"
+        echo "  LAUNCHER_NAME: $LAUNCHER_NAME"
+        echo "  THEME_COLOR: $THEME_COLOR"
+        echo "  THEME_COLOR_DARK: $THEME_COLOR_DARK"
+        echo "  BACKGROUND_COLOR: $BACKGROUND_COLOR"
+        
+        if [ "$LAUNCH_URL" = "/" ] || [ -z "$LAUNCH_URL" ]; then
+          LAUNCH_URL="https://$HOST_NAME/"
+          echo "Generated LAUNCH_URL: $LAUNCH_URL"
+        fi
+        
+        cp scripts/customize-project.py android-project/
+        
+        cd android-project
+        
+        export BUILD_ID="$BUILD_ID"
+        export HOST_NAME="$HOST_NAME"
+        export LAUNCH_URL="$LAUNCH_URL"
+        export APP_NAME="$APP_NAME"
+        export LAUNCHER_NAME="$LAUNCHER_NAME"
+        export THEME_COLOR="$THEME_COLOR"
+        export THEME_COLOR_DARK="$THEME_COLOR_DARK"
+        export BACKGROUND_COLOR="$BACKGROUND_COLOR"
+        
+        python3 customize-project.py
 
-    - name: Build Signed Release APK
+    - name: Build and Sign APK
       run: |
         cd android-project
-        echo "Building signed release APK..."
-        ./gradlew assembleRelease
-        echo "✅ Signed APK build completed"
-
-    - name: Find and Verify APK
-      id: find-apk
-      run: |
-        echo "Searching for signed APK..."
         
-        # Look for release APK (should be signed with the template keystore)
-        APK_PATH=$(find android-project -name "*.apk" -path "*/release/*" | grep -v "unaligned" | head -1)
+        chmod +x gradlew
         
-        if [ -z "$APK_PATH" ]; then
-          echo "❌ No release APK found"
-          echo "Available APK files:"
-          find android-project -name "*.apk" | while read file; do
-            echo "  - $file"
-          done
-          exit 1
-        fi
+        ./gradlew clean assembleRelease --no-daemon --stacktrace
         
-        echo "✅ Found APK: $APK_PATH"
+        APK_PATH=$(find . -name "app-release-unsigned.apk" -o -name "app-release.apk" | head -1)
+        echo "Found APK: $APK_PATH"
         
-        # Verify APK is signed
-        if command -v apksigner >/dev/null 2>&1; then
-          echo "Verifying APK signature..."
-          apksigner verify --verbose "$APK_PATH" && echo "✅ APK is properly signed" || echo "⚠️  APK signature verification failed"
-        else
-          echo "⚠️  apksigner not available, skipping signature verification"
-        fi
+        SIGNED_APK="app-signed.apk"
+        APKSIGNER_PATH=$(find "$ANDROID_HOME" -name "apksigner" | head -1)
         
-        # Get file size
-        FILE_SIZE=$(du -h "$APK_PATH" | cut -f1)
-        echo "APK Size: $FILE_SIZE"
+        echo "Signing APK..."
+        "$APKSIGNER_PATH" sign \
+          --ks android.keystore \
+          --ks-pass pass:123321 \
+          --key-pass pass:123321 \
+          --ks-key-alias android \
+          --out "$SIGNED_APK" \
+          "$APK_PATH"
         
-        echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
-        echo "APK_FILENAME=$(basename $APK_PATH)" >> $GITHUB_OUTPUT
+        echo "Verifying signature..."
+        "$APKSIGNER_PATH" verify "$SIGNED_APK"
+        
+        APP_NAME="${{ github.event.client_payload.name || github.event.inputs.name }}"
+        CLEAN_NAME=$(echo "$APP_NAME" | tr ' ' '-' | tr -cd '[:alnum:]-._')
+        FINAL_APK="${CLEAN_NAME}.apk"
+        cp "$SIGNED_APK" "$FINAL_APK"
+        
+        echo "APK ready: $FINAL_APK"
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: android-app-${{ env.BUILD_ID }}
-        path: ${{ steps.find-apk.outputs.APK_PATH }}
-        retention-days: 30
+        name: ${{ github.event.client_payload.name || github.event.inputs.name }}-APK
+        path: android-project/*.apk
+        retention-days: 7
 
-    - name: Upload to S3
-      id: upload-s3
+    - name: Create Build Summary
       run: |
-        echo "Uploading APK to S3..."
-        python3 scripts/upload-apk.py ${{ env.BUILD_ID }}
-        echo "✅ Upload completed"
-
-    - name: Notify Success
-      if: success()
+        echo "### ✅ APK Build Complete" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**App:** ${{ github.event.client_payload.name || github.event.inputs.name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Domain:** ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Theme:** ${{ github.event.client_payload.themeColor || github.event.inputs.themeColor }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📱 **Download the APK from the artifacts below**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Signing Key:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Alias: \`android\`" >> $GITHUB_STEP_SUMMARY
+        echo "- Password: \`123321\`" >> $GITHUB_STEP_SUMMARY
+        
+    - name: Notify Success via Webhook
+      if: success() && env.WEBHOOK_URL
       run: |
-        echo "✅ Build completed successfully!"
-        echo "APK: ${{ steps.find-apk.outputs.APK_PATH }}"
-        echo "Download URL: ${{ steps.upload-s3.outputs.apk_url }}"
-        python3 scripts/notify-webhook.py success
-
-    - name: Notify Failure
-      if: failure()
+        python scripts/notify-webhook.py success
+      env:
+        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+        ARTIFACT_NAME: ${{ github.event.client_payload.name || github.event.inputs.name }}-APK
+        
+    - name: Notify Failure via Webhook
+      if: failure() && env.WEBHOOK_URL
       run: |
-        echo "❌ Build failed!"
-        python3 scripts/notify-webhook.py failure
+        python scripts/notify-webhook.py failure
+      env:
+        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
 
 
 
