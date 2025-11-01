@@ -121,12 +121,31 @@ jobs:
         echo "=== Gradle Wrapper ==="
         ls -la gradle/wrapper/ || echo "No gradle wrapper"
 
+    - name: Fix File Permissions
+      run: |
+        cd android-project
+        echo "=== Fixing file permissions ==="
+        # Make gradlew executable
+        if [ -f "gradlew" ]; then
+          chmod +x gradlew
+          echo "Made gradlew executable"
+        else
+          echo "gradlew not found"
+        fi
+        
+        # Make other scripts executable
+        find . -name "*.sh" -type f -exec chmod +x {} \; 2>/dev/null || echo "No shell scripts found"
+        find . -name "*.py" -type f -exec chmod +x {} \; 2>/dev/null || echo "No Python scripts found"
+        
+        echo "=== Current permissions ==="
+        ls -la gradlew 2>/dev/null || echo "gradlew not present"
+
     - name: Update Gradle Wrapper if Needed
       run: |
         cd android-project
         if [ -f "gradlew" ]; then
           echo "Updating Gradle wrapper to compatible version..."
-          ./gradlew wrapper --gradle-version 8.11.1 --distribution-type all
+          ./gradlew wrapper --gradle-version 8.11.1 --distribution-type all --no-daemon
         else
           echo "No gradlew found, using existing setup"
         fi
@@ -144,6 +163,7 @@ jobs:
         ./gradlew dependencies --configuration releaseRuntimeClasspath --no-daemon || echo "Dependency check completed"
         
         echo "=== Building APK ==="
+        # Build with specific tasks for better control
         ./gradlew assembleRelease \
           --no-daemon \
           --stacktrace \
@@ -158,11 +178,13 @@ jobs:
       id: find-apk
       run: |
         cd android-project
+        
         echo "=== Searching for APK files ==="
         find . -name "*.apk" -type f | while read file; do
           echo "Found: $file ($(du -h "$file" | cut -f1))"
         done
         
+        # Try multiple possible APK paths
         APK_PATHS=(
           "app/build/outputs/apk/release/app-release.apk"
           "app/build/outputs/apk/release/app-release-unsigned.apk" 
@@ -195,9 +217,11 @@ jobs:
       run: |
         cd android-project
         APK_PATH="${{ steps.find-apk.outputs.APK_PATH }}"
+        
         echo "=== APK Analysis ==="
         echo "APK: $APK_PATH"
         
+        # Check if APK is valid using aapt2
         export ANDROID_HOME="${{ env.ANDROID_HOME }}"
         AAPT2_PATH=$(find "$ANDROID_HOME" -name "aapt2" | head -1)
         
@@ -209,6 +233,7 @@ jobs:
           file "$APK_PATH" || echo "file command failed"
         fi
         
+        # Check file type
         echo "=== File Type ==="
         file "$APK_PATH" || echo "Could not determine file type"
 
@@ -217,6 +242,7 @@ jobs:
       run: |
         cd android-project
         
+        # Verify keystore exists and is valid
         if [ ! -f "android.keystore" ]; then
           echo "ERROR: android.keystore not found in project root"
           ls -la
@@ -230,9 +256,11 @@ jobs:
         UNSIGNED_APK="${{ steps.find-apk.outputs.APK_PATH }}"
         SIGNED_APK="${UNSIGNED_APK%.apk}-signed.apk"
         
+        # Set up Android SDK paths
         export ANDROID_HOME="${{ env.ANDROID_HOME }}"
         export ANDROID_SDK_ROOT="${{ env.ANDROID_SDK_ROOT }}"
         
+        # Find apksigner (try multiple locations)
         APKSIGNER_PATH=$(find "$ANDROID_HOME" -name "apksigner" | head -1)
         if [ -z "$APKSIGNER_PATH" ]; then
           echo "ERROR: apksigner not found in Android SDK"
@@ -244,6 +272,7 @@ jobs:
         echo "Input APK: $UNSIGNED_APK"
         echo "Output APK: $SIGNED_APK"
         
+        # Sign the APK with verbose output
         "$APKSIGNER_PATH" sign \
           --ks android.keystore \
           --ks-pass pass:123321 \
@@ -253,6 +282,7 @@ jobs:
           --verbose \
           "$UNSIGNED_APK"
         
+        # Verify the signature
         echo "=== Verifying Signature ==="
         "$APKSIGNER_PATH" verify --verbose "$SIGNED_APK"
         
@@ -263,6 +293,7 @@ jobs:
       id: verify-apk
       run: |
         cd android-project
+        
         SIGNED_APK="${{ steps.sign-apk.outputs.SIGNED_APK_PATH }}"
         echo "=== Verifying Signed APK ==="
         
@@ -273,6 +304,7 @@ jobs:
           exit 1
         fi
         
+        # Check signed APK with aapt2 if available
         export ANDROID_HOME="${{ env.ANDROID_HOME }}"
         AAPT2_PATH=$(find "$ANDROID_HOME" -name "aapt2" | head -1)
         
@@ -289,6 +321,7 @@ jobs:
       id: zipalign-apk
       run: |
         cd android-project
+        
         SIGNED_APK="${{ steps.sign-apk.outputs.SIGNED_APK_PATH }}"
         ZIPPED_APK="${SIGNED_APK%.apk}-aligned.apk"
         
@@ -315,9 +348,11 @@ jobs:
       id: rename-apk
       run: |
         cd android-project
+        
         FINAL_APK_PATH="${{ steps.zipalign-apk.outputs.FINAL_APK_PATH }}"
         APP_NAME="${{ github.event.client_payload.name || github.event.inputs.name }}"
         
+        # Create a user-friendly filename (safe for filesystem)
         CLEAN_APP_NAME=$(echo "$APP_NAME" | tr ' ' '-' | tr -cd '[:alnum:]-._')
         FINAL_APK_NAME="${CLEAN_APP_NAME}-signed.apk"
         FINAL_APK_DIR="dist"
@@ -325,6 +360,7 @@ jobs:
         mkdir -p "$FINAL_APK_DIR"
         FINAL_DEST_PATH="$FINAL_APK_DIR/$FINAL_APK_NAME"
         
+        # Copy to final location
         cp "$FINAL_APK_PATH" "$FINAL_DEST_PATH"
         
         echo "FINAL_APK_PATH=$FINAL_DEST_PATH" >> $GITHUB_OUTPUT
@@ -334,6 +370,7 @@ jobs:
     - name: Final APK Verification
       run: |
         cd android-project
+        
         FINAL_APK="${{ steps.rename-apk.outputs.FINAL_APK_PATH }}"
         echo "=== Final APK Verification ==="
         
@@ -346,25 +383,27 @@ jobs:
         echo "File size: $(du -h "$FINAL_APK" | cut -f1)"
         echo "File type: $(file "$FINAL_APK" || echo "unknown")"
         
+        # Basic APK structure check
         if file "$FINAL_APK" | grep -q "Zip archive"; then
-          echo "APK is a valid ZIP archive"
+          echo "✓ APK is a valid ZIP archive"
+          # Check for essential APK files
           if unzip -l "$FINAL_APK" | grep -q "AndroidManifest.xml"; then
-            echo "Contains AndroidManifest.xml"
+            echo "✓ Contains AndroidManifest.xml"
           else
-            echo "Missing AndroidManifest.xml"
+            echo "⚠ Missing AndroidManifest.xml"
           fi
           if unzip -l "$FINAL_APK" | grep -q "classes.dex"; then
-            echo "Contains classes.dex"
+            echo "✓ Contains classes.dex"
           else
-            echo "Missing classes.dex"
+            echo "⚠ Missing classes.dex"
           fi
           if unzip -l "$FINAL_APK" | grep -q "resources.arsc"; then
-            echo "Contains resources.arsc"
+            echo "✓ Contains resources.arsc"
           else
-            echo "Missing resources.arsc"
+            echo "⚠ Missing resources.arsc"
           fi
         else
-          echo "Not a valid ZIP archive"
+          echo "❌ Not a valid ZIP archive"
           exit 1
         fi
         
@@ -380,9 +419,9 @@ jobs:
         
     - name: Create Build Summary
       run: |
-        echo "### APK Build Results" >> $GITHUB_STEP_SUMMARY
+        echo "### 📱 APK Build Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Build Completed Successfully!**" >> $GITHUB_STEP_SUMMARY
+        echo "**✅ Build Completed Successfully!**" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Build Details:**" >> $GITHUB_STEP_SUMMARY
         echo "- App Name: ${{ github.event.client_payload.name || github.event.inputs.name }}" >> $GITHUB_STEP_SUMMARY
@@ -391,24 +430,24 @@ jobs:
         echo "- APK File: ${{ steps.rename-apk.outputs.FINAL_APK_NAME }}" >> $GITHUB_STEP_SUMMARY
         echo "- Size: ${{ steps.find-apk.outputs.APK_SIZE }} → ${{ steps.verify-apk.outputs.SIGNED_SIZE }} (signed)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Build Quality:**" >> $GITHUB_STEP_SUMMARY
-        echo "- Signed with release key" >> $GITHUB_STEP_SUMMARY
-        echo "- Zipaligned (optimized)" >> $GITHUB_STEP_SUMMARY
-        echo "- Valid APK structure" >> $GITHUB_STEP_SUMMARY
-        echo "- Contains essential Android components" >> $GITHUB_STEP_SUMMARY
+        echo "**🔧 Build Quality:**" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Signed with release key" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Zipaligned (optimized)" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Valid APK structure" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Contains essential Android components" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Installation Instructions:**" >> $GITHUB_STEP_SUMMARY
-        echo "1. Download the APK from the artifacts section below" >> $GITHUB_STEP_SUMMARY
-        echo "2. Enable installation from unknown sources in Android Settings → Security" >> $GITHUB_STEP_SUMMARY
-        echo "3. Open the downloaded APK file to install" >> $GITHUB_STEP_SUMMARY
-        echo "4. Launch the app from your home screen" >> $GITHUB_STEP_SUMMARY
+        echo "**📥 Installation Instructions:**" >> $GITHUB_STEP_SUMMARY
+        echo "1. **Download** the APK from the artifacts section below" >> $GITHUB_STEP_SUMMARY
+        echo "2. **Enable installation** from unknown sources in Android Settings → Security" >> $GITHUB_STEP_SUMMARY
+        echo "3. **Open** the downloaded APK file to install" >> $GITHUB_STEP_SUMMARY
+        echo "4. **Launch** the app from your home screen" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Signing Information:**" >> $GITHUB_STEP_SUMMARY
+        echo "**🔑 Signing Information:**" >> $GITHUB_STEP_SUMMARY
         echo "- Key Alias: \`android\`" >> $GITHUB_STEP_SUMMARY
         echo "- Keystore Password: \`123321\`" >> $GITHUB_STEP_SUMMARY
         echo "- Key Password: \`123321\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "> Troubleshooting:" >> $GITHUB_STEP_SUMMARY
+        echo "> ⚠️ **Troubleshooting:**" >> $GITHUB_STEP_SUMMARY
         echo "> - If you get 'App not installed', ensure 'Install from Unknown Sources' is enabled" >> $GITHUB_STEP_SUMMARY
         echo "> - Make sure you're downloading the actual APK file, not the GitHub artifact ZIP" >> $GITHUB_STEP_SUMMARY
         echo "> - The APK should install like any regular Android application" >> $GITHUB_STEP_SUMMARY
@@ -430,4 +469,5 @@ jobs:
       env:
         WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
         BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+
 
