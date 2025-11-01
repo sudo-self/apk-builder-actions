@@ -40,9 +40,6 @@ jobs:
     timeout-minutes: 15
     
     steps:
-    - name: Checkout APK Builder repo
-      uses: actions/checkout@v4
-      
     - name: Checkout Template APK repo
       uses: actions/checkout@v4
       with:
@@ -70,67 +67,30 @@ jobs:
         THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark || github.event.inputs.themeColorDark || '#000000' }}
         BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor || github.event.inputs.backgroundColor || '#FFFFFF' }}
       run: |
-        echo "Customizing Android project with:"
-        echo "  BUILD_ID: $BUILD_ID"
-        echo "  HOST_NAME: $HOST_NAME"
-        echo "  LAUNCH_URL: $LAUNCH_URL"
-        echo "  APP_NAME: $APP_NAME"
-        echo "  LAUNCHER_NAME: $LAUNCHER_NAME"
-        echo "  THEME_COLOR: $THEME_COLOR"
-        echo "  THEME_COLOR_DARK: $THEME_COLOR_DARK"
-        echo "  BACKGROUND_COLOR: $BACKGROUND_COLOR"
-        
-        # Construct full launch URL if only hostname provided
+        cd android-project
+        echo "Customizing Android project..."
         if [ "$LAUNCH_URL" = "/" ] || [ -z "$LAUNCH_URL" ]; then
           LAUNCH_URL="https://$HOST_NAME/"
-          echo "Generated LAUNCH_URL: $LAUNCH_URL"
         fi
+        python3 scripts/customize-project.py
+
+    - name: Build and Sign APK
+      run: |
+        cd android-project
         
-        python scripts/customize-project.py
-
-    - name: Fix File Permissions
-      run: |
-        cd android-project
-        if [ -f "gradlew" ]; then
-          chmod +x gradlew
-          echo "Made gradlew executable"
-        fi
-
-    - name: Update Gradle Wrapper
-      run: |
-        cd android-project
-        if [ -f "gradlew" ]; then
-          ./gradlew wrapper --gradle-version 8.11.1 --distribution-type all --no-daemon
-        fi
-
-    - name: Build APK
-      run: |
-        cd android-project
+        # Fix permissions and build
+        chmod +x gradlew
         ./gradlew clean assembleRelease --no-daemon --stacktrace
-
-    - name: Find and Sign APK
-      id: sign-apk
-      run: |
-        cd android-project
         
-        # Find the APK file
+        # Find and sign APK
         APK_PATH=$(find . -name "app-release-unsigned.apk" -o -name "app-release.apk" | head -1)
-        if [ -z "$APK_PATH" ]; then
-          echo "APK not found"
-          find . -name "*.apk" | head -10
-          exit 1
-        fi
-        
         echo "Found APK: $APK_PATH"
         
         # Sign the APK
-        SIGNED_APK="${APK_PATH%.apk}-signed.apk"
-        export ANDROID_HOME="$ANDROID_HOME"
-        
-        # Find and use apksigner
+        SIGNED_APK="app-signed.apk"
         APKSIGNER_PATH=$(find "$ANDROID_HOME" -name "apksigner" | head -1)
-        echo "Signing APK with: $APKSIGNER_PATH"
         
+        echo "Signing APK..."
         "$APKSIGNER_PATH" sign \
           --ks android.keystore \
           --ks-pass pass:123321 \
@@ -139,24 +99,17 @@ jobs:
           --out "$SIGNED_APK" \
           "$APK_PATH"
         
-        echo "SIGNED_APK_PATH=$SIGNED_APK" >> $GITHUB_OUTPUT
-        echo "APK signed successfully"
-
-    - name: Rename APK
-      run: |
-        cd android-project
+        # Verify signature
+        echo "Verifying signature..."
+        "$APKSIGNER_PATH" verify "$SIGNED_APK"
         
-        SIGNED_APK="${{ steps.sign-apk.outputs.SIGNED_APK_PATH }}"
+        # Rename for user
         APP_NAME="${{ github.event.client_payload.name || github.event.inputs.name }}"
-        
-        # Create clean filename
         CLEAN_NAME=$(echo "$APP_NAME" | tr ' ' '-' | tr -cd '[:alnum:]-._')
-        FINAL_APK_NAME="${CLEAN_NAME}.apk"
+        FINAL_APK="${CLEAN_NAME}.apk"
+        cp "$SIGNED_APK" "$FINAL_APK"
         
-        # Copy to final name
-        cp "$SIGNED_APK" "$FINAL_APK_NAME"
-        
-        echo "Final APK: $FINAL_APK_NAME"
+        echo "APK ready: $FINAL_APK"
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
@@ -164,36 +117,5 @@ jobs:
         name: ${{ github.event.client_payload.name || github.event.inputs.name }}-APK
         path: android-project/*.apk
         retention-days: 7
-
-    - name: Create Build Summary
-      run: |
-        echo "### ✅ APK Build Complete" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**App:** ${{ github.event.client_payload.name || github.event.inputs.name }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Domain:** ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Theme:** ${{ github.event.client_payload.themeColor || github.event.inputs.themeColor }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "📱 **Download the APK from the artifacts below**" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Signing Key:**" >> $GITHUB_STEP_SUMMARY
-        echo "- Alias: \`android\`" >> $GITHUB_STEP_SUMMARY
-        echo "- Password: \`123321\`" >> $GITHUB_STEP_SUMMARY
-        
-    - name: Notify Success via Webhook
-      if: success() && env.WEBHOOK_URL
-      run: |
-        python scripts/notify-webhook.py success
-      env:
-        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
-        ARTIFACT_NAME: ${{ steps.rename-apk.outputs.FINAL_APK_NAME }}
-        
-    - name: Notify Failure via Webhook
-      if: failure() && env.WEBHOOK_URL
-      run: |
-        python scripts/notify-webhook.py failure
-      env:
-        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
 
 
