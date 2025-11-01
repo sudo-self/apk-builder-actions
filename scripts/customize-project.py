@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+#!/usr/bin/env python3
 """
 Customize the Android project with user-provided values.
 This script modifies the Android project files to match the build configuration.
@@ -19,6 +21,114 @@ def read_env_or_fail(key, default=None):
     if value is None:
         raise ValueError(f"Required environment variable {key} is not set")
     return value
+
+def validate_package_name(package_name):
+    """Validate and fix Android package name."""
+    # Android package name requirements:
+    # - At least two segments (com.example)
+    # - Each segment must start with a letter
+    # - Only letters, numbers, and underscores
+    
+    # Ensure we have at least two segments
+    segments = package_name.split('.')
+    if len(segments) < 2:
+        segments = ['com', 'webapp'] + segments
+    
+    # Clean each segment
+    cleaned_segments = []
+    for segment in segments:
+        if not segment:
+            continue
+            
+        # Remove invalid characters, keep only alphanumeric and underscores
+        segment = re.sub(r'[^a-zA-Z0-9_]', '', segment)
+        
+        # Ensure segment starts with a letter
+        if segment and segment[0].isdigit():
+            segment = 'a' + segment
+        
+        # Ensure it's not empty
+        if segment:
+            cleaned_segments.append(segment)
+    
+    # If we don't have enough segments, add defaults
+    if len(cleaned_segments) < 2:
+        cleaned_segments = ['com', 'webapp', 'generated']
+    
+    # Join back together and ensure lowercase
+    final_package = '.'.join(cleaned_segments).lower()
+    
+    # Final validation
+    if not re.match(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$', final_package):
+        # Fallback to a safe package name
+        final_package = 'com.webapp.generated'
+    
+    return final_package
+
+def generate_package_name(host_name):
+    """Generate a valid Android package name from host name."""
+    # Remove protocol and paths
+    clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '')
+    clean_host = clean_host.split('/')[0].split('?')[0].split(':')[0]
+    clean_host = clean_host.rstrip('/').strip()
+    
+    log(f"Cleaned hostname: {clean_host}")
+    
+    # Split by dots and reverse for package name (com.example instead of example.com)
+    parts = clean_host.split('.')
+    
+    # Remove empty parts and ensure we have valid segments
+    parts = [part for part in parts if part and part.strip()]
+    
+    if len(parts) >= 2:
+        # Reverse domain for package name (com.example)
+        reversed_parts = list(reversed(parts))
+        package_name = '.'.join(reversed_parts)
+    else:
+        # Single part domain, use com. prefix
+        package_name = f"com.{clean_host}" if parts else "com.webapp.generated"
+    
+    # Validate and fix the package name
+    validated_package = validate_package_name(package_name)
+    
+    log(f"Generated package name: {validated_package}")
+    return validated_package
+
+def update_android_manifest(manifest_path, host_name, package_name):
+    """Update AndroidManifest.xml with proper configuration."""
+    if not manifest_path.exists():
+        log(f"WARNING: {manifest_path} not found")
+        return False
+    
+    log(f"Updating {manifest_path}...")
+    content = manifest_path.read_text()
+    
+    # Update package name in manifest
+    if 'package="' in content:
+        content = re.sub(
+            r'package="[^"]*"',
+            f'package="{package_name}"',
+            content
+        )
+    
+    # Update the host name in the intent filter for TWA
+    content = re.sub(
+        r'android:host="[^"]*"',
+        f'android:host="{host_name}"',
+        content
+    )
+    
+    # Ensure the app is debuggable for testing (remove for production)
+    if 'android:debuggable=' in content:
+        content = re.sub(
+            r'android:debuggable="[^"]*"',
+            'android:debuggable="true"',
+            content
+        )
+    
+    manifest_path.write_text(content)
+    log("AndroidManifest.xml updated successfully")
+    return True
 
 def main():
     log("Starting Android project customization...")
@@ -46,6 +156,13 @@ def main():
     project_dir = Path('android-project')
     app_dir = project_dir / 'app'
     
+    # Generate package name first
+    package_name = generate_package_name(host_name)
+    
+    # Update AndroidManifest.xml first (package name is critical)
+    manifest_path = app_dir / 'src' / 'main' / 'AndroidManifest.xml'
+    update_android_manifest(manifest_path, host_name, package_name)
+    
     # Update strings.xml
     strings_path = app_dir / 'src' / 'main' / 'res' / 'values' / 'strings.xml'
     if strings_path.exists():
@@ -60,19 +177,43 @@ def main():
         )
         
         # Replace launcher name if different
-        if '<string name="launcher_name">' in content:
-            content = re.sub(
-                r'<string name="launcher_name">.*?</string>',
-                f'<string name="launcher_name">{launcher_name}</string>',
-                content
-            )
+        if launcher_name != app_name:
+            if '<string name="launcher_name">' in content:
+                content = re.sub(
+                    r'<string name="launcher_name">.*?</string>',
+                    f'<string name="launcher_name">{launcher_name}</string>',
+                    content
+                )
+            else:
+                # Add launcher_name if it doesn't exist
+                content = content.replace(
+                    '<string name="app_name">',
+                    f'<string name="launcher_name">{launcher_name}</string>\n    <string name="app_name">'
+                )
         
         # Update host name for TWA
-        if '<string name="host">' in content or '<string name="hostName">' in content:
-            content = re.sub(
-                r'<string name="host(?:Name)?">.*?</string>',
-                f'<string name="hostName">{host_name}</string>',
-                content
+        host_patterns = [
+            r'<string name="host">.*?</string>',
+            r'<string name="hostName">.*?</string>',
+            r'<string name="host_name">.*?</string>'
+        ]
+        
+        host_updated = False
+        for pattern in host_patterns:
+            if re.search(pattern, content):
+                content = re.sub(
+                    pattern,
+                    f'<string name="hostName">{host_name}</string>',
+                    content
+                )
+                host_updated = True
+                break
+        
+        if not host_updated:
+            # Add hostName if it doesn't exist
+            content = content.replace(
+                '</resources>',
+                f'    <string name="hostName">{host_name}</string>\n</resources>'
             )
         
         # Update launch URL
@@ -82,29 +223,17 @@ def main():
                 f'<string name="launchUrl">{launch_url}</string>',
                 content
             )
+        else:
+            # Add launchUrl if it doesn't exist
+            content = content.replace(
+                '</resources>',
+                f'    <string name="launchUrl">{launch_url}</string>\n</resources>'
+            )
         
         strings_path.write_text(content)
         log("strings.xml updated successfully")
     else:
         log(f"WARNING: {strings_path} not found")
-    
-    # Update AndroidManifest.xml
-    manifest_path = app_dir / 'src' / 'main' / 'AndroidManifest.xml'
-    if manifest_path.exists():
-        log(f"Updating {manifest_path}...")
-        content = manifest_path.read_text()
-        
-        # Update the host name in the intent filter
-        content = re.sub(
-            r'android:host="[^"]*"',
-            f'android:host="{host_name}"',
-            content
-        )
-        
-        manifest_path.write_text(content)
-        log("AndroidManifest.xml updated successfully")
-    else:
-        log(f"WARNING: {manifest_path} not found")
     
     # Update colors.xml
     colors_path = app_dir / 'src' / 'main' / 'res' / 'values' / 'colors.xml'
@@ -156,46 +285,14 @@ def main():
     else:
         log(f"WARNING: {colors_path} not found")
     
-    # Update build.gradle (app level) if needed
+    # Update build.gradle (app level)
     build_gradle_path = app_dir / 'build.gradle'
     if build_gradle_path.exists():
-        log(f"Checking {build_gradle_path}...")
+        log(f"Updating {build_gradle_path}...")
         content = build_gradle_path.read_text()
         
-        # Update applicationId based on domain
+        # Update applicationId
         if 'applicationId' in content:
-            # Clean the hostname and generate a valid package name
-            clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '')
-            # Remove any trailing slashes and paths
-            clean_host = clean_host.split('/')[0].rstrip('/')
-            
-            log(f"Cleaned hostname: {clean_host}")
-            
-            # Split by dots and create package name
-            parts = clean_host.split('.')
-            if len(parts) >= 2:
-                # Reverse the entire domain for package name
-                # example.com -> com.example
-                # sub.example.com -> com.example.sub
-                reversed_parts = list(reversed(parts))
-                package_name = '.'.join(reversed_parts)
-            else:
-                # Single part domain, use com. prefix
-                package_name = f"com.{clean_host}"
-            
-            # Replace any invalid characters with underscore
-            package_name = re.sub(r'[^a-zA-Z0-9.]', '_', package_name)
-            
-            # Ensure no numbers at start of segments
-            package_parts = package_name.split('.')
-            package_parts = [f"_{part}" if part and part[0].isdigit() else part for part in package_parts if part]
-            package_name = '.'.join(package_parts)
-            
-            # Ensure package name is lowercase (Android convention)
-            package_name = package_name.lower()
-            
-            log(f"Generated package name: {package_name}")
-            
             content = re.sub(
                 r'applicationId\s+"[^"]*"',
                 f'applicationId "{package_name}"',
@@ -208,32 +305,13 @@ def main():
     else:
         log(f"WARNING: {build_gradle_path} not found")
     
-    # Check for build.gradle.kts (Kotlin DSL)
+    # Update build.gradle.kts (Kotlin DSL)
     build_gradle_kts_path = app_dir / 'build.gradle.kts'
     if build_gradle_kts_path.exists():
-        log(f"Checking {build_gradle_kts_path}...")
+        log(f"Updating {build_gradle_kts_path}...")
         content = build_gradle_kts_path.read_text()
         
         if 'applicationId' in content:
-            # Clean the hostname
-            clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '')
-            clean_host = clean_host.split('/')[0].rstrip('/')
-            
-            parts = clean_host.split('.')
-            if len(parts) >= 2:
-                # Reverse the entire domain for package name
-                reversed_parts = list(reversed(parts))
-                package_name = '.'.join(reversed_parts)
-            else:
-                package_name = f"com.{clean_host}"
-            
-            package_name = re.sub(r'[^a-zA-Z0-9.]', '_', package_name)
-            package_parts = package_name.split('.')
-            package_parts = [f"_{part}" if part and part[0].isdigit() else part for part in package_parts if part]
-            package_name = '.'.join(package_parts).lower()
-            
-            log(f"Generated package name (KTS): {package_name}")
-            
             content = re.sub(
                 r'applicationId\s*=\s*"[^"]*"',
                 f'applicationId = "{package_name}"',
@@ -249,19 +327,15 @@ def main():
         'launch_url': launch_url,
         'app_name': app_name,
         'launcher_name': launcher_name,
+        'package_name': package_name,
         'theme_color': theme_color,
         'theme_color_dark': theme_color_dark,
-        'background_color': background_color,
-        'timestamp': str(Path(__file__).stat().st_mtime)
+        'background_color': background_color
     }
     
     build_info_path = project_dir / 'build-info.json'
     build_info_path.write_text(json.dumps(build_info, indent=2))
     log(f"Created build info file at {build_info_path}")
-    
-    # Log the build info
-    log("Build configuration:")
-    log(json.dumps(build_info, indent=2))
     
     log("Android project customization completed successfully!")
 
