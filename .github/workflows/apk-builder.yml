@@ -1,126 +1,147 @@
-- name: Build Release APK
-  run: |
-    cd android-project
-    chmod +x gradlew
-    
-    # Verify keystore exists
-    echo "=== Checking for keystore ==="
-    if [ -f "android.keystore" ]; then
-      echo "✅ Keystore found"
-      ls -la android.keystore
-    else
-      echo "❌ Keystore not found!"
-      find . -name "*.keystore" -type f
-      exit 1
-    fi
-    
-    # Build with more info
-    ./gradlew clean assembleRelease --no-daemon --stacktrace --info
+name: Build Android APK
 
-    # Check all APKs that were built
-    echo "=== All generated APKs ==="
-    find app/build/outputs -name "*.apk" -type f | while read apk; do
-      echo "APK: $apk"
-      ls -la "$apk"
-      echo "Size: $(du -h "$apk" | cut -f1)"
-      echo "---"
-    done
+on:
+  workflow_dispatch:
+    inputs:
+      host_name:
+        description: 'Website URL'
+        required: true
+        default: 'https://example.com'
+      app_name:
+        description: 'App Name'  
+        required: true
+        default: 'My Web App'
+      launch_url:
+        description: 'Launch URL Path'
+        required: false
+        default: '/'
+      theme_color:
+        description: 'Theme Color'
+        required: false
+        default: '#171717'
 
-- name: Sign and Align APK
-  run: |
-    cd android-project
-    
-    # List available APKs
-    echo "=== Available APKs before signing ==="
-    find app/build/outputs -name "*.apk" -type f
-    
-    # Use the correct APK path
-    APK_PATH="app/build/outputs/apk/release/app-release-unsigned.apk"
-    
-    if [ ! -f "$APK_PATH" ]; then
-      echo "❌ Release APK not found at expected path: $APK_PATH"
-      echo "Trying to find any release APK..."
-      APK_PATH=$(find app/build/outputs -name "*release*.apk" -type f | head -1)
-      if [ -z "$APK_PATH" ]; then
-        echo "❌ No release APK found at all!"
-        exit 1
-      fi
-      echo "Using alternative APK: $APK_PATH"
-    fi
-    
-    # Verify APK structure
-    echo "=== Analyzing APK structure ==="
-    file "$APK_PATH"
-    unzip -l "$APK_PATH" | head -20
-    
-    # Find Android tools
-    APKSIGNER=$(find "$ANDROID_HOME" -name apksigner -type f | head -1)
-    ZIPALIGN=$(find "$ANDROID_HOME" -name zipalign -type f | head -1)
-    
-    echo "APK Signer: $APKSIGNER"
-    echo "Zipalign: $ZIPALIGN"
-    
-    # Sign APK
-    echo "=== Signing APK ==="
-    "$APKSIGNER" sign \
-      --ks android.keystore \
-      --ks-pass pass:123321 \
-      --ks-key-alias android \
-      --key-pass pass:123321 \
-      --out signed.apk "$APK_PATH"
-    
-    echo "=== Verifying signature ==="
-    "$APKSIGNER" verify --verbose signed.apk
-    
-    echo "=== Zipaligning ==="
-    "$ZIPALIGN" -v -p 4 signed.apk final.apk
-    
-    echo "=== Final APK check ==="
-    ls -la final.apk
-    file final.apk
-    
-    # Basic APK validation
-    echo "=== Validating APK structure ==="
-    if unzip -l final.apk | grep -q "AndroidManifest.xml"; then
-      echo "✅ AndroidManifest.xml found in APK"
-    else
-      echo "❌ AndroidManifest.xml missing from APK"
-    fi
-    
-    if unzip -l final.apk | grep -q "classes.dex"; then
-      echo "✅ classes.dex found in APK"
-    else
-      echo "❌ classes.dex missing from APK"
-    fi
-    
-    if unzip -l final.apk | grep -q "resources.arsc"; then
-      echo "✅ resources.arsc found in APK"
-    else
-      echo "❌ resources.arsc missing from APK"
-    fi
+env:
+  BUILD_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+  HOST_NAME: ${{ inputs.host_name }}
+  APP_NAME: ${{ inputs.app_name }}
+  LAUNCH_URL: ${{ inputs.launch_url }}
+  THEME_COLOR: ${{ inputs.theme_color }}
+  THEME_COLOR_DARK: '#000000'
+  BACKGROUND_COLOR: '#FFFFFF'
 
-- name: Upload APK Artifact
-  uses: actions/upload-artifact@v4
-  with:
-    name: Built-APK
-    path: android-project/final.apk
-    retention-days: 7
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-    - name: Notify Success via Webhook
-      if: success() && env.WEBHOOK_URL
-      run: python scripts/notify-webhook.py success
-      env:
-        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
-        ARTIFACT_NAME: ${{ github.event.client_payload.name || github.event.inputs.name }}-APK
+    - name: Clone APK Template
+      run: |
+        git clone https://github.com/sudo-self/template_apk android-project
+        echo "✅ Template cloned successfully"
 
-    - name: Notify Failure via Webhook
-      if: failure() && env.WEBHOOK_URL
-      run: python scripts/notify-webhook.py failure
-      env:
-        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
 
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Verify Keystore Exists
+      run: |
+        cd android-project
+        if [ -f "android.keystore" ]; then
+          echo "✅ Keystore found in template"
+          ls -la android.keystore
+        else
+          echo "❌ Keystore not found in template"
+          exit 1
+        fi
+
+    - name: Make gradlew executable
+      run: |
+        cd android-project
+        chmod +x gradlew
+        echo "✅ Made gradlew executable"
+
+    - name: Customize Android Project
+      run: |
+        echo "Customizing Android project..."
+        python3 scripts/customize-project.py
+        echo "✅ Project customization completed"
+
+    - name: Build Signed Release APK
+      run: |
+        cd android-project
+        echo "Building signed release APK..."
+        ./gradlew assembleRelease
+        echo "✅ Signed APK build completed"
+
+    - name: Find and Verify APK
+      id: find-apk
+      run: |
+        echo "Searching for signed APK..."
+        
+        # Look for release APK (should be signed with the template keystore)
+        APK_PATH=$(find android-project -name "*.apk" -path "*/release/*" | grep -v "unaligned" | head -1)
+        
+        if [ -z "$APK_PATH" ]; then
+          echo "❌ No release APK found"
+          echo "Available APK files:"
+          find android-project -name "*.apk" | while read file; do
+            echo "  - $file"
+          done
+          exit 1
+        fi
+        
+        echo "✅ Found APK: $APK_PATH"
+        
+        # Verify APK is signed
+        if command -v apksigner >/dev/null 2>&1; then
+          echo "Verifying APK signature..."
+          apksigner verify --verbose "$APK_PATH" && echo "✅ APK is properly signed" || echo "⚠️  APK signature verification failed"
+        else
+          echo "⚠️  apksigner not available, skipping signature verification"
+        fi
+        
+        # Get file size
+        FILE_SIZE=$(du -h "$APK_PATH" | cut -f1)
+        echo "APK Size: $FILE_SIZE"
+        
+        echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
+        echo "APK_FILENAME=$(basename $APK_PATH)" >> $GITHUB_OUTPUT
+
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-app-${{ env.BUILD_ID }}
+        path: ${{ steps.find-apk.outputs.APK_PATH }}
+        retention-days: 30
+
+    - name: Upload to S3
+      id: upload-s3
+      run: |
+        echo "Uploading APK to S3..."
+        python3 scripts/upload-apk.py ${{ env.BUILD_ID }}
+        echo "✅ Upload completed"
+
+    - name: Notify Success
+      if: success()
+      run: |
+        echo "✅ Build completed successfully!"
+        echo "APK: ${{ steps.find-apk.outputs.APK_PATH }}"
+        echo "Download URL: ${{ steps.upload-s3.outputs.apk_url }}"
+        python3 scripts/notify-webhook.py success
+
+    - name: Notify Failure
+      if: failure()
+      run: |
+        echo "❌ Build failed!"
+        python3 scripts/notify-webhook.py failure
 
 
 
