@@ -83,7 +83,7 @@ jobs:
         echo "=== Building unsigned release APK ==="
         ./gradlew clean assembleRelease --no-daemon --stacktrace
 
-        APK_PATH=$(find . -name "app-release-unsigned.apk" | head -1)
+        APK_PATH=$(find ./app/build/outputs/apk/release -name "*release-unsigned.apk" | head -1)
         echo "Found unsigned APK: $APK_PATH"
 
         SIGNED_APK="app-signed.apk"
@@ -112,18 +112,18 @@ jobs:
         APP_NAME="${{ github.event.client_payload.name || github.event.inputs.name }}"
         CLEAN_NAME=$(echo "$APP_NAME" | tr ' ' '-' | tr -cd '[:alnum:]-._')
         mv "$FINAL_APK" "../${CLEAN_NAME}.apk"
-        echo "APK ready: ${CLEAN_NAME}.apk"
+        echo "APK ready: ../${CLEAN_NAME}.apk"
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ github.event.client_payload.name || github.event.inputs.name }}-APK
-        path: android-project/*.apk
+        path: ${{ github.event.client_payload.name || github.event.inputs.name }}.apk
         retention-days: 7
 
     - name: Create Build Summary
       run: |
-        APK_NAME=$(ls android-project/*.apk | xargs -n1 basename)
+        APK_NAME=$(ls *.apk | xargs -n1 basename)
         echo "### APK Build Complete" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**App:** ${{ github.event.client_payload.name || github.event.inputs.name }}" >> $GITHUB_STEP_SUMMARY
@@ -152,6 +152,7 @@ jobs:
       env:
         WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
         BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+
 
 
 
