@@ -8,12 +8,27 @@ on:
       buildId:
         description: 'Build ID'
         required: true
+        default: 'test-build-123'
       hostName:
         description: 'Host name'
         required: true
+        default: 'example.com'
       name:
         description: 'App name'
         required: true
+        default: 'Test App'
+      launcherName:
+        description: 'Launcher name'
+        required: false
+        default: 'Test App'
+      themeColor:
+        description: 'Theme color'
+        required: false
+        default: '#FFFFFF'
+      backgroundColor:
+        description: 'Background color'
+        required: false
+        default: '#FFFFFF'
 
 jobs:
   build-apk:
@@ -21,6 +36,18 @@ jobs:
     timeout-minutes: 30
     
     steps:
+    - name: Debug Event Data
+      run: |
+        echo "GITHUB_EVENT_NAME: $GITHUB_EVENT_NAME"
+        echo "GITHUB_EVENT_PATH: $GITHUB_EVENT_PATH"
+        if [ -f "$GITHUB_EVENT_PATH" ]; then
+          echo "Event file contents:"
+          cat $GITHUB_EVENT_PATH
+          echo ""
+        else
+          echo "Event file not found"
+        fi
+        
     - name: Checkout APK Builder repo
       uses: actions/checkout@v4
       
@@ -42,6 +69,14 @@ jobs:
       
     - name: Customize Android Project
       run: |
+        # Debug the current directory structure
+        echo "Current directory: $(pwd)"
+        echo "Directory contents:"
+        ls -la
+        echo "Scripts directory:"
+        ls -la scripts/ || echo "No scripts directory"
+        
+        # Run the customization script directly
         python scripts/customize-project.py
       
     - name: Build APK
@@ -59,30 +94,18 @@ jobs:
         echo "📦 Found APK: $APK_PATH"
         
         # Get APK size
-        APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
-        echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
-        echo "📊 APK Size: $APK_SIZE"
+        if [ -n "$APK_PATH" ]; then
+          APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
+          echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
+          echo "📊 APK Size: $APK_SIZE"
+        else
+          echo "❌ No APK found"
+        fi
         
     - name: Upload APK Artifact
+      if: steps.find-apk.outputs.APK_PATH
       uses: actions/upload-artifact@v4
       with:
         name: apk-${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
-        path: ${{ steps.find-apk.outputs.APK_PATH }}
+        path: android-project/${{ steps.find-apk.outputs.APK_PATH }}
         retention-days: 7
-        
-    - name: Notify Success
-      if: success()
-      run: |
-        python scripts/notify-webhook.py success
-      env:
-        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
-        ARTIFACT_NAME: apk-${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
-        
-    - name: Notify Failure
-      if: failure()
-      run: |
-        python scripts/notify-webhook.py failure
-      env:
-        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
