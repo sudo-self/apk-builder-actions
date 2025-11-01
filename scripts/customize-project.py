@@ -67,6 +67,22 @@ def main():
                 content
             )
         
+        # Update host name for TWA
+        if '<string name="host">' in content or '<string name="hostName">' in content:
+            content = re.sub(
+                r'<string name="host(?:Name)?">.*?</string>',
+                f'<string name="hostName">{host_name}</string>',
+                content
+            )
+        
+        # Update launch URL
+        if '<string name="launchUrl">' in content:
+            content = re.sub(
+                r'<string name="launchUrl">.*?</string>',
+                f'<string name="launchUrl">{launch_url}</string>',
+                content
+            )
+        
         strings_path.write_text(content)
         log("strings.xml updated successfully")
     else:
@@ -90,32 +106,6 @@ def main():
     else:
         log(f"WARNING: {manifest_path} not found")
     
-    # Update TWA configuration (if exists)
-    # This is typically in res/values/strings.xml or a separate config file
-    twa_config_path = app_dir / 'src' / 'main' / 'res' / 'values' / 'strings.xml'
-    if twa_config_path.exists():
-        log(f"Updating TWA configuration in {twa_config_path}...")
-        content = twa_config_path.read_text()
-        
-        # Update host
-        if '<string name="host">' in content or '<string name="hostName">' in content:
-            content = re.sub(
-                r'<string name="host(?:Name)?">.*?</string>',
-                f'<string name="hostName">{host_name}</string>',
-                content
-            )
-        
-        # Update launch URL
-        if '<string name="launchUrl">' in content:
-            content = re.sub(
-                r'<string name="launchUrl">.*?</string>',
-                f'<string name="launchUrl">{launch_url}</string>',
-                content
-            )
-        
-        twa_config_path.write_text(content)
-        log("TWA configuration updated successfully")
-    
     # Update colors.xml
     colors_path = app_dir / 'src' / 'main' / 'res' / 'values' / 'colors.xml'
     if colors_path.exists():
@@ -123,11 +113,15 @@ def main():
         content = colors_path.read_text()
         
         # Update theme color
-        content = re.sub(
-            r'<color name="colorPrimary">.*?</color>',
-            f'<color name="colorPrimary">{theme_color}</color>',
-            content
-        )
+        if '<color name="colorPrimary">' in content:
+            content = re.sub(
+                r'<color name="colorPrimary">.*?</color>',
+                f'<color name="colorPrimary">{theme_color}</color>',
+                content
+            )
+        else:
+            # Add it if it doesn't exist
+            content = content.replace('</resources>', f'    <color name="colorPrimary">{theme_color}</color>\n</resources>')
         
         # Update theme color dark
         if '<color name="colorPrimaryDark">' in content:
@@ -136,12 +130,24 @@ def main():
                 f'<color name="colorPrimaryDark">{theme_color_dark}</color>',
                 content
             )
+        else:
+            content = content.replace('</resources>', f'    <color name="colorPrimaryDark">{theme_color_dark}</color>\n</resources>')
         
         # Update background color
         if '<color name="backgroundColor">' in content:
             content = re.sub(
                 r'<color name="backgroundColor">.*?</color>',
                 f'<color name="backgroundColor">{background_color}</color>',
+                content
+            )
+        else:
+            content = content.replace('</resources>', f'    <color name="backgroundColor">{background_color}</color>\n</resources>')
+        
+        # Update navigationBarColor if it exists
+        if '<color name="navigationBarColor">' in content:
+            content = re.sub(
+                r'<color name="navigationBarColor">.*?</color>',
+                f'<color name="navigationBarColor">{theme_color_dark}</color>',
                 content
             )
         
@@ -156,11 +162,38 @@ def main():
         log(f"Checking {build_gradle_path}...")
         content = build_gradle_path.read_text()
         
-        # You can update version codes, application IDs, etc. here if needed
-        # For example, update applicationId based on domain
+        # Update applicationId based on domain
         if 'applicationId' in content:
-            # Generate a package name from the domain
-            package_name = 'com.' + host_name.replace('.', '_').replace('-', '_')
+            # Clean the hostname and generate a valid package name
+            clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '')
+            # Remove any trailing slashes and paths
+            clean_host = clean_host.split('/')[0].rstrip('/')
+            
+            log(f"Cleaned hostname: {clean_host}")
+            
+            # Split by dots and reverse for package name convention
+            parts = clean_host.split('.')
+            if len(parts) >= 2:
+                # Standard domain like "example.com" -> "com.example"
+                # Take TLD and first part of domain
+                package_name = f"{parts[-1]}.{parts[0]}"
+            else:
+                # Single part domain, use com. prefix
+                package_name = f"com.{clean_host}"
+            
+            # Replace any invalid characters with underscore
+            package_name = re.sub(r'[^a-zA-Z0-9.]', '_', package_name)
+            
+            # Ensure no numbers at start of segments
+            package_parts = package_name.split('.')
+            package_parts = [f"_{part}" if part and part[0].isdigit() else part for part in package_parts if part]
+            package_name = '.'.join(package_parts)
+            
+            # Ensure package name is lowercase (Android convention)
+            package_name = package_name.lower()
+            
+            log(f"Generated package name: {package_name}")
+            
             content = re.sub(
                 r'applicationId\s+"[^"]*"',
                 f'applicationId "{package_name}"',
@@ -168,8 +201,42 @@ def main():
             )
             build_gradle_path.write_text(content)
             log(f"Updated applicationId to {package_name}")
+        else:
+            log("No applicationId found in build.gradle")
     else:
         log(f"WARNING: {build_gradle_path} not found")
+    
+    # Check for build.gradle.kts (Kotlin DSL)
+    build_gradle_kts_path = app_dir / 'build.gradle.kts'
+    if build_gradle_kts_path.exists():
+        log(f"Checking {build_gradle_kts_path}...")
+        content = build_gradle_kts_path.read_text()
+        
+        if 'applicationId' in content:
+            # Clean the hostname
+            clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '')
+            clean_host = clean_host.split('/')[0].rstrip('/')
+            
+            parts = clean_host.split('.')
+            if len(parts) >= 2:
+                package_name = f"{parts[-1]}.{parts[0]}"
+            else:
+                package_name = f"com.{clean_host}"
+            
+            package_name = re.sub(r'[^a-zA-Z0-9.]', '_', package_name)
+            package_parts = package_name.split('.')
+            package_parts = [f"_{part}" if part and part[0].isdigit() else part for part in package_parts if part]
+            package_name = '.'.join(package_parts).lower()
+            
+            log(f"Generated package name (KTS): {package_name}")
+            
+            content = re.sub(
+                r'applicationId\s*=\s*"[^"]*"',
+                f'applicationId = "{package_name}"',
+                content
+            )
+            build_gradle_kts_path.write_text(content)
+            log(f"Updated applicationId in build.gradle.kts to {package_name}")
     
     # Create a build info file for debugging
     build_info = {
@@ -180,12 +247,17 @@ def main():
         'launcher_name': launcher_name,
         'theme_color': theme_color,
         'theme_color_dark': theme_color_dark,
-        'background_color': background_color
+        'background_color': background_color,
+        'timestamp': str(Path(__file__).stat().st_mtime)
     }
     
     build_info_path = project_dir / 'build-info.json'
     build_info_path.write_text(json.dumps(build_info, indent=2))
     log(f"Created build info file at {build_info_path}")
+    
+    # Log the build info
+    log("Build configuration:")
+    log(json.dumps(build_info, indent=2))
     
     log("Android project customization completed successfully!")
 
