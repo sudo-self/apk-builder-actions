@@ -1,111 +1,30 @@
-name: APK Builder
-
-on:
-  repository_dispatch:
-    types: [apk_build]
-  workflow_dispatch:
-    inputs:
-      buildId:
-        description: 'Build ID'
-        required: true
-        default: 'test-build-123'
-      hostName:
-        description: 'Host name'
-        required: true
-        default: 'example.com'
-      name:
-        description: 'App name'
-        required: true
-        default: 'Test App'
-      launcherName:
-        description: 'Launcher name'
-        required: false
-        default: 'Test App'
-      themeColor:
-        description: 'Theme color'
-        required: false
-        default: '#FFFFFF'
-      backgroundColor:
-        description: 'Background color'
-        required: false
-        default: '#FFFFFF'
-
-jobs:
-  build-apk:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    
-    steps:
-    - name: Debug Event Data
-      run: |
-        echo "GITHUB_EVENT_NAME: $GITHUB_EVENT_NAME"
-        echo "GITHUB_EVENT_PATH: $GITHUB_EVENT_PATH"
-        if [ -f "$GITHUB_EVENT_PATH" ]; then
-          echo "Event file contents:"
-          cat $GITHUB_EVENT_PATH
-          echo ""
-        else
-          echo "Event file not found"
-        fi
-        
-    - name: Checkout APK Builder repo
-      uses: actions/checkout@v4
-      
-    - name: Checkout Template APK repo
-      uses: actions/checkout@v4
-      with:
-        repository: sudo-self/template_apk
-        token: ${{ secrets.GITHUB_TOKEN }}
-        path: android-project
-        
-    - name: Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-        
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-      
-    - name: Customize Android Project
-      run: |
-        # Debug the current directory structure
-        echo "Current directory: $(pwd)"
-        echo "Directory contents:"
-        ls -la
-        echo "Scripts directory:"
-        ls -la scripts/ || echo "No scripts directory"
-        
-        # Run the customization script directly
-        python scripts/customize-project.py
-      
-    - name: Build APK
-      run: |
-        cd android-project
-        chmod +x gradlew
-        ./gradlew assembleRelease --no-daemon --stacktrace
-        
     - name: Find APK
       id: find-apk
       run: |
         cd android-project
         APK_PATH=$(find . -name "*.apk" -type f | head -1)
         echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
-        echo "📦 Found APK: $APK_PATH"
+        echo "Found APK: $APK_PATH"
         
-        # Get APK size
-        if [ -n "$APK_PATH" ]; then
-          APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
+        # Get full path for upload
+        FULL_APK_PATH="android-project/$APK_PATH"
+        echo "FULL_APK_PATH=$FULL_APK_PATH" >> $GITHUB_OUTPUT
+        echo "📁 Full path: $FULL_APK_PATH"
+        
+        # Verify file exists
+        if [ -f "$FULL_APK_PATH" ]; then
+          APK_SIZE=$(du -h "$FULL_APK_PATH" | cut -f1)
           echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
-          echo "📊 APK Size: $APK_SIZE"
+          echo "APK Size: $APK_SIZE"
+          echo "APK file verified"
         else
-          echo "❌ No APK found"
+          echo "APK file not found at full path"
         fi
         
     - name: Upload APK Artifact
-      if: steps.find-apk.outputs.APK_PATH
+      if: steps.find-apk.outputs.FULL_APK_PATH
       uses: actions/upload-artifact@v4
       with:
         name: apk-${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
-        path: android-project/${{ steps.find-apk.outputs.APK_PATH }}
+        path: ${{ steps.find-apk.outputs.FULL_APK_PATH }}
         retention-days: 7
