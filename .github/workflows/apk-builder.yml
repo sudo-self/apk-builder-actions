@@ -37,7 +37,6 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
 
     steps:
     - name: Checkout APK Builder repo
@@ -50,11 +49,14 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         path: android-project
 
+    - name: Copy Signing Key
+      run: cp android-project/android.keystore android-project/android.keystore
+
     - name: Setup Java
       uses: actions/setup-java@v4
       with:
-        distribution: 'temurin'
-        java-version: '17'
+        distribution: "temurin"
+        java-version: "17"
 
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
@@ -63,78 +65,72 @@ jobs:
       env:
         BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
         HOST_NAME: ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}
-        LAUNCH_URL: ${{ github.event.client_payload.launchUrl || github.event.inputs.launchUrl || '/' }}
+        LAUNCH_URL: "/"
         APP_NAME: ${{ github.event.client_payload.name || github.event.inputs.name }}
         LAUNCHER_NAME: ${{ github.event.client_payload.launcherName || github.event.inputs.launcherName }}
-        THEME_COLOR: ${{ github.event.client_payload.themeColor || github.event.inputs.themeColor || '#171717' }}
-        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark || github.event.inputs.themeColorDark || '#000000' }}
-        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor || github.event.inputs.backgroundColor || '#FFFFFF' }}
+        THEME_COLOR: ${{ github.event.client_payload.themeColor || github.event.inputs.themeColor }}
+        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark || github.event.inputs.themeColorDark }}
+        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor || github.event.inputs.backgroundColor }}
       run: |
         cd android-project
         cp ../scripts/customize-project.py .
         python3 customize-project.py
 
-    - name: Build, Sign, and Zipalign APK
+    # ✅ BUILD EXACTLY ONE UNSIGNED APK
+    - name: Build Release APK
+      run: |
+        cd android-project
+        chmod +x gradlew
+        ./gradlew clean assembleRelease --no-daemon --stacktrace
+
+        echo "=== Removing junk APKs ==="
+        # Delete ALL extra APKs the template creates except *release-unsigned.apk
+        find app/build/outputs/apk/release -type f ! -name "app-release-unsigned.apk" -delete
+
+        echo "Remaining files:"
+        ls -l app/build/outputs/apk/release
+
+    # ✅ SIGN + ZIPALIGN GUARANTEED ONE FINAL APK
+    - name: Sign and Align APK
       run: |
         cd android-project
 
-        chmod +x gradlew
+        APK="$(find app/build/outputs/apk/release -name app-release-unsigned.apk | head -1)"
+        echo "Using unsigned APK: $APK"
 
-        echo "=== Building unsigned release APK ==="
-        ./gradlew clean assembleRelease --no-daemon --stacktrace
+        APKSIGNER=$(find "$ANDROID_HOME" -name apksigner | head -1)
+        ZIPALIGN=$(find "$ANDROID_HOME" -name zipalign | head -1)
 
-        APK_PATH=$(find ./app/build/outputs/apk/release -name "*release-unsigned.apk" | head -1)
-        echo "Found unsigned APK: $APK_PATH"
+        SIGNED="signed.apk"
+        FINAL="final.apk"
 
-        SIGNED_APK="app-signed.apk"
-        FINAL_APK="app-final.apk"
-
-        APKSIGNER_PATH=$(find "$ANDROID_HOME" -name "apksigner" | head -1)
-        ZIPALIGN_PATH=$(find "$ANDROID_HOME" -name "zipalign" | head -1)
-
-        echo "=== Signing APK with android.keystore ==="
-        "$APKSIGNER_PATH" sign \
+        echo "=== Signing ==="
+        "$APKSIGNER" sign \
           --ks android.keystore \
           --ks-pass pass:123321 \
-          --key-pass pass:123321 \
           --ks-key-alias android \
-          --v1-signing-enabled true \
-          --v2-signing-enabled true \
-          --out "$SIGNED_APK" \
-          "$APK_PATH"
+          --key-pass pass:123321 \
+          --out "$SIGNED" \
+          "$APK"
 
-        echo "=== Verifying signed APK ==="
-        "$APKSIGNER_PATH" verify "$SIGNED_APK"
+        echo "=== Verifying signature ==="
+        "$APKSIGNER" verify "$SIGNED"
 
-        echo "=== Zipaligning APK ==="
-        "$ZIPALIGN_PATH" -v -p 4 "$SIGNED_APK" "$FINAL_APK"
+        echo "=== Zipalign ==="
+        "$ZIPALIGN" -v -p 4 "$SIGNED" "$FINAL"
 
-        APP_NAME="${{ github.event.client_payload.name || github.event.inputs.name }}"
-        CLEAN_NAME=$(echo "$APP_NAME" | tr ' ' '-' | tr -cd '[:alnum:]-._')
-        mv "$FINAL_APK" "../${CLEAN_NAME}.apk"
-        echo "APK ready: ../${CLEAN_NAME}.apk"
+        CLEAN_NAME=$(echo "${{ github.event.client_payload.name || github.event.inputs.name }}" | tr ' ' '-' | tr -cd '[:alnum:]-._')
+        mv "$FINAL" "../${CLEAN_NAME}.apk"
+
+        echo "✅ FINAL APK: ../${CLEAN_NAME}.apk"
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ github.event.client_payload.name || github.event.inputs.name }}-APK
+        name: Built-APK
         path: ${{ github.event.client_payload.name || github.event.inputs.name }}.apk
         retention-days: 7
 
-    - name: Create Build Summary
-      run: |
-        APK_NAME=$(ls *.apk | xargs -n1 basename)
-        echo "### APK Build Complete" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**App:** ${{ github.event.client_payload.name || github.event.inputs.name }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Domain:** ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Theme:** ${{ github.event.client_payload.themeColor || github.event.inputs.themeColor }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**APK File:** $APK_NAME" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Signing Key:**" >> $GITHUB_STEP_SUMMARY
-        echo "- Alias: \`android\`" >> $GITHUB_STEP_SUMMARY
-        echo "- Password: \`123321\`" >> $GITHUB_STEP_SUMMARY
 
     - name: Notify Success via Webhook
       if: success() && env.WEBHOOK_URL
