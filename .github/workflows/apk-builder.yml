@@ -78,13 +78,13 @@ jobs:
           
           # Create or update gradle.properties with signing info
           cat >> gradle.properties <<EOF
-          
-          # Signing Config
-          RELEASE_STORE_FILE=../my-release-key.jks
-          RELEASE_STORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}
-          RELEASE_KEY_ALIAS=${{ secrets.KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}
-          EOF
+
+# Signing Config
+RELEASE_STORE_FILE=../my-release-key.jks
+RELEASE_STORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}
+RELEASE_KEY_ALIAS=${{ secrets.KEY_ALIAS }}
+RELEASE_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}
+EOF
           
           echo "Signing config added"
           
@@ -95,23 +95,23 @@ jobs:
           # Add signing config to build.gradle if not present
           if ! grep -q "signingConfigs" build.gradle*; then
             cat >> build.gradle <<'EOF'
-          
-          android {
-              signingConfigs {
-                  release {
-                      storeFile file(RELEASE_STORE_FILE)
-                      storePassword RELEASE_STORE_PASSWORD
-                      keyAlias RELEASE_KEY_ALIAS
-                      keyPassword RELEASE_KEY_PASSWORD
-                  }
-              }
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.release
-                  }
-              }
-          }
-          EOF
+
+android {
+    signingConfigs {
+        release {
+            storeFile file(RELEASE_STORE_FILE)
+            storePassword RELEASE_STORE_PASSWORD
+            keyAlias RELEASE_KEY_ALIAS
+            keyPassword RELEASE_KEY_PASSWORD
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
+    }
+}
+EOF
             echo "Signing config added to build.gradle"
           fi
           
@@ -144,15 +144,12 @@ jobs:
           
           echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
           
-    - name: Verify APK signature
-  run: |
-    APK_SIGNER="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)/apksigner"
-    $APK_SIGNER verify --verbose --print-certs "./${{ env.apk_name }}"
-    echo "APK signature verified"
-  shell: bash
-
-
-
+      - name: Verify APK signature
+        run: |
+          APK_SIGNER="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)/apksigner"
+          $APK_SIGNER verify --verbose --print-certs "./${{ env.apk_name }}"
+          echo "APK signature verified"
+        shell: bash
         
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -180,6 +177,7 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
 
