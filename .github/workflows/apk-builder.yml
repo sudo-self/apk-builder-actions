@@ -18,20 +18,47 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Clone and build
+    - name: Clone template
       run: |
         git clone https://github.com/sudo-self/template_apk.git android-project
+
+    - name: Customize Android project
+      run: |
+        cd android-project
+        python3 ../scripts/customize-project.py
+      env:
+        BUILD_ID: ${{ github.event.client_payload.buildId }}
+        HOST_NAME: ${{ github.event.client_payload.hostName }}
+        LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
+        APP_NAME: ${{ github.event.client_payload.name }}
+        LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
+        THEME_COLOR: ${{ github.event.client_payload.themeColor }}
+        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
+        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
+
+    - name: Update app icon
+      run: |
+        cd android-project
+        python3 ../scripts/update-app-icon.py
+      env:
+        ICON_CHOICE: ${{ github.event.client_payload.iconChoice }}
+
+    - name: Build APK
+      run: |
         cd android-project
         chmod +x gradlew
-        
-        # Build debug APK (faster than release)
         ./gradlew assembleDebug
+
+    - name: Sign APK
+      run: |
+        cd android-project
+        python3 ../scripts/sign-apk.py
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: android-app
-        path: android-project/app/build/outputs/apk/debug/app-debug.apk
+        name: ${{ github.event.client_payload.name }}-app
+        path: android-project/app/build/outputs/apk/debug/app-signed.apk
 
 
 
