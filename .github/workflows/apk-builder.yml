@@ -134,8 +134,8 @@ EOF
 
       - name: Verify APK signature
         run: |
-          APK_SIGNER="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)/apksigner"
-          $APK_SIGNER verify --verbose --print-certs "./${{ env.apk_name }}"
+          # Use jarsigner for reliable signature verification
+          jarsigner -verify -verbose -certs "./${{ env.apk_name }}"
           echo "APK signature verified"
 
       - name: Upload APK
