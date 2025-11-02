@@ -50,7 +50,7 @@ def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, ho
     content = build_gradle_path.read_text()
     clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0].split('?')[0]
     
-    # Update twaManifest values
+    # twaManifest values
     content = re.sub(
         r"applicationId:\s*['\"].*?['\"]",
         f"applicationId: '{package_name}'",
@@ -86,7 +86,7 @@ def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, ho
     )
     log(f"Set launcherName to {launcher_name}")
     
-    # Ensure colors have # prefix
+    # colors have prefix
     def ensure_hash(color):
         return color if color.startswith('#') else f'#{color}'
     
@@ -115,14 +115,14 @@ def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, ho
     )
     log(f"Set backgroundColor to {background_color}")
     
-    # Also update the namespace line
+    # namespace
     content = re.sub(
         r'namespace\s+".*?"',
         f'namespace "{package_name}"',
         content
     )
     
-    # Update the applicationId in defaultConfig (it references twaManifest)
+    # applicationId 
     content = re.sub(
         r'applicationId\s+".*?"',
         f'applicationId "{package_name}"',
@@ -130,7 +130,7 @@ def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, ho
     )
     
     build_gradle_path.write_text(content)
-    log(f"✅ Updated {build_gradle_path}")
+    log(f"Updated {build_gradle_path}")
     return True
 
 def update_manifest_remove_package(manifest_path: Path):
@@ -146,7 +146,7 @@ def update_manifest_remove_package(manifest_path: Path):
         if 'package=' in content:
             content = re.sub(r'\s*package="[^"]*"', '', content)
             manifest_path.write_text(content)
-            log("✅ Removed deprecated package attribute from AndroidManifest.xml")
+            log("Removed deprecated package attribute from AndroidManifest.xml")
         else:
             log("No package attribute found in manifest (already clean)")
         
@@ -162,18 +162,22 @@ def create_asset_links(values_dir: Path, host_name: str, package_name: str):
     
     clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0].split('?')[0]
     
-    # Note: In production, you need to add the SHA256 fingerprint of your signing key
-    # Get it with: keytool -list -v -keystore my-release-key.jks
+
+    sha256_fingerprint = "51:9C:6C:9B:D9:3B:86:34:67:63:39:22:C9:50:87:DF:49:53:78:5F:84:68:2E:F1:8F:6A:4F:5F:56:B2:73:D8"
+    
     content = f'''<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="assetStatements">
         [{{"relation": ["delegate_permission/common.handle_all_urls"], 
-          "target": {{"namespace": "web", "site": "https://{clean_host}"}}}}]
+          "target": {{"namespace": "web", "site": "https://{clean_host}"}}}},
+         {{"relation": ["delegate_permission/common.handle_all_urls"],
+          "target": {{"namespace": "android_app", "package_name": "{package_name}",
+                      "sha256_cert_fingerprints": ["{sha256_fingerprint}"]}}}}]
     </string>
 </resources>'''
     
     path.write_text(content, encoding='utf-8')
-    log(f"✅ Created assetlinks.xml at {path}")
+    log(f"Created assetlinks.xml at {path}")
 
 def main():
     log("=" * 60)
@@ -181,14 +185,14 @@ def main():
     log("=" * 60)
     
     try:
-        # Read environment variables
+    
         build_id = os.getenv('BUILD_ID', 'local')
         
-        # Required variables
+     
         host_name = read_env_or_fail('HOST_NAME')
         app_name = read_env_or_fail('APP_NAME')
         
-        # Optional variables with defaults
+      
         launch_url = os.getenv('LAUNCH_URL', '/')
         launcher_name = os.getenv('LAUNCHER_NAME', app_name)
         theme_color = os.getenv('THEME_COLOR', '#171717')
@@ -201,7 +205,7 @@ def main():
         log(f"Launcher Name: {launcher_name}")
         log(f"Launch URL: {launch_url}")
 
-        # Locate android project
+     
         app_dir = Path('android-project/app')
         if not app_dir.exists():
             log(f"ERROR: App directory not found at {app_dir.resolve()}")
@@ -214,11 +218,11 @@ def main():
             
         log(f"Using app directory: {app_dir.resolve()}")
 
-        # Generate package name
+        # package name
         package_name = generate_package_name(host_name)
         log("=" * 60)
 
-        # Update build.gradle with twaManifest values
+        # build.gradle
         log("Updating build.gradle with twaManifest configuration...")
         build_gradle = app_dir / 'build.gradle'
         if not update_twa_manifest_in_gradle(
@@ -227,19 +231,19 @@ def main():
         ):
             log("WARNING: Failed to update build.gradle")
         
-        # Update AndroidManifest.xml (remove deprecated package attribute)
+      
         log("Cleaning up AndroidManifest.xml...")
         manifest_path = main_dir / 'AndroidManifest.xml'
         update_manifest_remove_package(manifest_path)
 
         log("=" * 60)
-        log("✅ Android project customization completed successfully!")
+        log("Android project customization completed successfully!")
         log("=" * 60)
         return 0
 
     except ValueError as e:
         log("=" * 60)
-        log(f"❌ ERROR: {e}")
+        log(f"ERROR: {e}")
         log("=" * 60)
         log("\nEnvironment variables received:")
         for key in ['BUILD_ID', 'HOST_NAME', 'LAUNCH_URL', 'APP_NAME', 'LAUNCHER_NAME', 
@@ -250,7 +254,7 @@ def main():
         
     except Exception as e:
         log("=" * 60)
-        log(f"❌ UNEXPECTED ERROR: {e}")
+        log(f"UNEXPECTED ERROR: {e}")
         log("=" * 60)
         traceback.print_exc()
         return 1
