@@ -18,6 +18,9 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
     - name: Clone and customize
       run: |
         git clone https://github.com/sudo-self/template_apk.git android-project
@@ -28,9 +31,6 @@ jobs:
         sed -i "s|<string name=\"launchUrl\">[^<]*</string>|<string name=\"launchUrl\">https://$HOST_NAME$LAUNCH_URL</string>|g" app/src/main/res/values/strings.xml
         sed -i "s|<string name=\"appName\">[^<]*</string>|<string name=\"appName\">$APP_NAME</string>|g" app/src/main/res/values/strings.xml
         sed -i "s|<string name=\"launcherName\">[^<]*</string>|<string name=\"launcherName\">$LAUNCHER_NAME</string>|g" app/src/main/res/values/strings.xml
-        
-        # Update web manifest URL if it exists
-        sed -i "s|<string name=\"webManifestUrl\">[^<]*</string>|<string name=\"webManifestUrl\">https://$HOST_NAME/manifest.json</string>|g" app/src/main/res/values/strings.xml || true
         
         echo "Updated hostName to: $HOST_NAME"
         echo "Updated launchUrl to: https://$HOST_NAME$LAUNCH_URL"
@@ -46,8 +46,10 @@ jobs:
         cd android-project
         chmod +x gradlew
         ./gradlew assembleDebug
-        zipalign -p 4 app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-signed.apk
-        apksigner sign --ks android.keystore --ks-pass pass:123321 --key-pass pass:123321 --ks-key-alias android app/build/outputs/apk/debug/app-signed.apk
+        
+        # Use full path to Android SDK tools
+        $ANDROID_HOME/build-tools/*/zipalign -p 4 app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-signed.apk
+        $ANDROID_HOME/build-tools/*/apksigner sign --ks android.keystore --ks-pass pass:123321 --key-pass pass:123321 --ks-key-alias android app/build/outputs/apk/debug/app-signed.apk
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
