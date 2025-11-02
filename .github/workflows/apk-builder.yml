@@ -9,28 +9,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      # Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-
-      - name: Install Bubblewrap
-        run: npm install -g @bubblewrap/cli
-
+      # Setup Python
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: Setup Java
+      # Setup Node (needed for Bubblewrap)
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      # Setup Java
+      - name: Setup JDK
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
+      # Install Bubblewrap CLI globally
+      - name: Install Bubblewrap
+        run: npm install -g @bubblewrap/cli
+
+      # Cache Gradle packages
       - name: Cache Gradle
         uses: actions/cache@v3
         with:
@@ -41,34 +47,49 @@ jobs:
           restore-keys: |
             gradle-
 
+      # Clone Android template
       - name: Clone Android template
         run: git clone https://github.com/sudo-self/template_apk.git android-project
 
-      - name: Decode Keystore
+      # Decode keystore
+      - name: Decode keystore
         run: |
-          echo "${KEYSTORE_BASE64}" | base64 --decode > android-project/my-release-key.jks
+          echo $KEYSTORE_BASE64 | base64 --decode > android-project/my-release-key.jks
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-      - name: Customize and build APK (non-interactive)
+      # Customize Android project (non-interactive)
+      - name: Customize and Build APK
         run: |
           cd android-project
           python3 ../scripts/customize-project.py
-          bubblewrap build \
-            --manifest="${{ github.event.client_payload.launchUrl }}" \
-            --package="${{ github.event.client_payload.name }}" \
-            --name="${{ github.event.client_payload.name }}" \
-            --keystore=./my-release-key.jks \
-            --keystore-password="${{ secrets.KEYSTORE_PASSWORD }}" \
-            --key-alias="${{ secrets.KEY_ALIAS }}" \
-            --key-password="${{ secrets.KEY_PASSWORD }}" \
-            --output=../${{ github.event.client_payload.name }}.apk
+          
+          # Build with Bubblewrap
+          bubblewrap init --manifest ${LAUNCH_URL} --name "${APP_NAME}" --package "com.${HOST_NAME}" --non-interactive
+          bubblewrap build --release --keystore ../my-release-key.jks --alias ${KEY_ALIAS} --storePassword ${KEYSTORE_PASSWORD} --keyPassword ${KEY_PASSWORD}
 
+          # Rename APK to appname.apk
+          mv build/outputs/apk/release/app-release.apk ../${APP_NAME}.apk
+        env:
+          BUILD_ID: ${{ github.run_number }}
+          HOST_NAME: ${{ github.event.client_payload.hostName }}
+          LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
+          APP_NAME: ${{ github.event.client_payload.name }}
+          LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
+          THEME_COLOR: ${{ github.event.client_payload.themeColor }}
+          THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
+          BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      # Upload final APK
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.client_payload.name }}-app
-          path: ../${{ github.event.client_payload.name }}.apk
+          path: ./${{ github.event.client_payload.name }}.apk
+
 
 
 
