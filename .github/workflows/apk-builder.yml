@@ -15,14 +15,48 @@ jobs:
     - name: Setup Android
       uses: android-actions/setup-android@v3
 
-    - name: Build and sign APK
-      run: bash scripts/build-and-sign.sh
+    - name: Clone template
+      run: |
+        git clone https://github.com/sudo-self/template_apk.git android-project
 
-    - name: Upload APK
+    - name: Customize Android project
+      run: |
+        cd android-project
+        python3 ../scripts/customize-project.py
+      env:
+        BUILD_ID: ${{ github.event.client_payload.buildId }}
+        HOST_NAME: ${{ github.event.client_payload.hostName }}
+        LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
+        APP_NAME: ${{ github.event.client_payload.name }}
+        LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
+        THEME_COLOR: ${{ github.event.client_payload.themeColor }}
+        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
+        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
+        ICON_CHOICE: ${{ github.event.client_payload.iconChoice }}
+
+    - name: Update app icon
+      run: |
+        cd android-project
+        python3 ../scripts/update-app-icon.py
+      env:
+        ICON_CHOICE: ${{ github.event.client_payload.iconChoice }}
+
+    - name: Build APK
+      run: |
+        cd android-project
+        chmod +x gradlew
+        ./gradlew assembleDebug
+
+    - name: Sign APK
+      run: |
+        cd android-project
+        python3 ../scripts/sign-apk.py
+
+    - name: Upload signed APK
       uses: actions/upload-artifact@v4
       with:
-        name: signed-app
-        path: android-project/app/build/outputs/apk/debug/app-signed.apk
+        name: ${{ github.event.client_payload.name }}-${{ github.event.client_payload.buildId }}
+        path: android-project/app/build/outputs/apk/debug/app-debug-signed.apk
 
 
 
