@@ -33,10 +33,9 @@ jobs:
         git clone https://github.com/sudo-self/template_apk.git android-project
         cd android-project
 
-        # Find config file
         JSON_FILE=$(find . -name "twa-manifest.json" -type f | head -1)
 
-        # Pick icon
+        # Select icon URL
         if [ "$ICON_CHOICE" = "castle" ]; then
           ICON_URL="https://apk.jessejesse.com/castle-512.png"
         elif [ "$ICON_CHOICE" = "smile" ]; then
@@ -45,11 +44,11 @@ jobs:
           ICON_URL="https://apk.jessejesse.com/phone-512.png"
         fi
 
-        # Generate packageID + provider authority
+        # Compute package ID and provider authority
         PACKAGE_ID="com.${HOST_NAME//./}.twa"
         PROVIDER_AUTHORITY="${PACKAGE_ID}.fileprovider"
 
-        # Apply JSON updates
+        # Patch JSON manifest
         sed -i "s|\"host\": \"[^\"]*\"|\"host\": \"$HOST_NAME\"|g" "$JSON_FILE"
         sed -i "s|\"name\": \"[^\"]*\"|\"name\": \"$APP_NAME\"|g" "$JSON_FILE"
         sed -i "s|\"launcherName\": \"[^\"]*\"|\"launcherName\": \"$LAUNCHER_NAME\"|g" "$JSON_FILE"
@@ -61,15 +60,18 @@ jobs:
         sed -i "s|\"iconUrl\": \"[^\"]*\"|\"iconUrl\": \"$ICON_URL\"|g" "$JSON_FILE"
         sed -i "s|\"packageId\": \"[^\"]*\"|\"packageId\": \"$PACKAGE_ID\"|g" "$JSON_FILE"
 
-        # Also patch strings.xml
-        STRINGS="app/src/main/res/values/strings.xml"
-        sed -i "s|<string name=\"hostName\">[^<]*</string>|<string name=\"hostName\">$HOST_NAME</string>|g" "$STRINGS"
-        sed -i "s|<string name=\"launchUrl\">[^<]*</string>|<string name=\"launchUrl\">https://$HOST_NAME$LAUNCH_URL</string>|g" "$STRINGS"
-        sed -i "s|<string name=\"appName\">[^<]*</string>|<string name=\"appName\">$APP_NAME</string>|g" "$STRINGS"
-        sed -i "s|<string name=\"launcherName\">[^<]*</string>|<string name=\"launcherName\">$LAUNCHER_NAME</string>|g" "$STRINGS"
-        sed -i "s|<string name=\"providerAuthority\">[^<]*</string>|<string name=\"providerAuthority\">$PROVIDER_AUTHORITY</string>|g" "$STRINGS"
+        # Update strings.xml
+        STRINGS_FILE="app/src/main/res/values/strings.xml"
+        sed -i "s|<string name=\"hostName\">[^<]*</string>|<string name=\"hostName\">$HOST_NAME</string>|g" "$STRINGS_FILE"
+        sed -i "s|<string name=\"launchUrl\">[^<]*</string>|<string name=\"launchUrl\">https://$HOST_NAME$LAUNCH_URL</string>|g" "$STRINGS_FILE"
+        sed -i "s|<string name=\"appName\">[^<]*</string>|<string name=\"appName\">$APP_NAME</string>|g" "$STRINGS_FILE"
+        sed -i "s|<string name=\"launcherName\">[^<]*</string>|<string name=\"launcherName\">$LAUNCHER_NAME</string>|g" "$STRINGS_FILE"
+        sed -i "s|<string name=\"providerAuthority\">[^<]*</string>|<string name=\"providerAuthority\">$PROVIDER_AUTHORITY</string>|g" "$STRINGS_FILE"
 
-        echo "JSON + strings.xml updated"
+        echo "Updated JSON and strings.xml:"
+        cat "$JSON_FILE" | grep -E "(host|name|launcherName|startUrl|themeColor|iconUrl)"
+        echo "Using icon: $ICON_URL"
+        echo "Provider Authority: $PROVIDER_AUTHORITY"
 
       env:
         HOST_NAME: ${{ github.event.client_payload.hostName }}
@@ -85,11 +87,6 @@ jobs:
       run: |
         cd android-project
         chmod +x gradlew
-        
-        # ✅ REQUIRED — force regeneration so it does NOT use example config
-        ./gradlew updateManifest
-
-        # Build debug APK
         ./gradlew assembleDebug
 
     - name: Upload APK
@@ -97,6 +94,7 @@ jobs:
       with:
         name: ${{ github.event.client_payload.name }}-app
         path: android-project/app/build/outputs/apk/debug/app-debug.apk
+
 
 
 
