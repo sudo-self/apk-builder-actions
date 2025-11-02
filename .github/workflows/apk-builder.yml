@@ -15,18 +15,23 @@ jobs:
     - name: Setup Android
       uses: android-actions/setup-android@v3
 
-    - name: Clone and build release APK
+    - name: Clone and build debug APK
       run: |
         git clone https://github.com/sudo-self/template_apk.git android-project
         cd android-project
         chmod +x gradlew
-        ./gradlew assembleRelease
+        ./gradlew assembleDebug
 
-    - name: Upload release APK
+    - name: List build outputs to see what exists
+      run: |
+        cd android-project
+        find . -name "*.apk" -type f
+
+    - name: Upload debug APK
       uses: actions/upload-artifact@v4
       with:
         name: android-app
-        path: android-project/app/build/outputs/apk/release/app-release.apk
+        path: android-project/app/build/outputs/apk/debug/app-debug.apk
 
 
 
