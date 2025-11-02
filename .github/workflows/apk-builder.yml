@@ -36,6 +36,14 @@ jobs:
       - name: Clone Android template
         run: git clone https://github.com/sudo-self/template_apk.git android-project
 
+      - name: Debug - Check template before customization
+        run: |
+          echo "=== TEMPLATE build.gradle BEFORE customization ==="
+          cat android-project/app/build.gradle | head -50
+          echo ""
+          echo "=== TEMPLATE AndroidManifest.xml BEFORE customization ==="
+          cat android-project/app/src/main/AndroidManifest.xml | head -20
+
       - name: Decode keystore
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > android-project/android.keystore
@@ -58,6 +66,17 @@ jobs:
           THEME_COLOR: ${{ github.event.client_payload.themeColor }}
           THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
           BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
+
+      - name: Debug - Check template after customization
+        run: |
+          echo "=== TEMPLATE build.gradle AFTER customization ==="
+          cat android-project/app/build.gradle | head -50
+          echo ""
+          echo "=== Check if values were updated ==="
+          grep -n "applicationId\|hostName\|namespace" android-project/app/build.gradle
+          echo ""
+          echo "=== Check AndroidManifest.xml ==="
+          cat android-project/app/src/main/AndroidManifest.xml | head -20
 
       - name: Build Release APK
         run: |
