@@ -53,14 +53,17 @@ def create_strings_xml(values_dir, app_name, launcher_name, host_name, launch_ur
     package_name = generate_package_name(host_name)
     provider_authority = f"{package_name}.fileprovider"
     
-
+    # Clean the host name for use in strings
     clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
- 
+    
+    # Digital Asset Links statement for TWA
+    # This allows
 
 def create_colors_xml(values_dir, theme_color, theme_color_dark, background_color):
     """Create or update colors.xml with theme colors."""
     path = values_dir / 'colors.xml'
-
+    
+    # Ensure colors start with #
     def ensure_hash(color):
         return color if color.startswith('#') else f'#{color}'
     
@@ -70,11 +73,20 @@ def create_colors_xml(values_dir, theme_color, theme_color_dark, background_colo
     
     content = f'''<?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Primary theme colors -->
     <color name="colorPrimary">{theme_color}</color>
     <color name="colorPrimaryDark">{theme_color_dark}</color>
     <color name="backgroundColor">{background_color}</color>
     <color name="navigationBarColor">{theme_color_dark}</color>
     <color name="statusBarColor">{theme_color_dark}</color>
+    
+    <!-- Shortcut and icon colors -->
+    <color name="shortcut_background">{theme_color}</color>
+    <color name="shortcut_foreground">#FFFFFF</color>
+    
+    <!-- Additional UI colors -->
+    <color name="colorAccent">{theme_color}</color>
+    <color name="splashScreenBackground">{background_color}</color>
 </resources>'''
     
     path.write_text(content, encoding='utf-8')
@@ -90,9 +102,9 @@ def update_gradle(build_gradle_path: Path, package_name: str):
     original = content
     is_kts = build_gradle_path.suffix == '.kts'
 
-    # Kotlin
+    # For Kotlin DSL
     if is_kts:
- 
+        # Update namespace
         if 'namespace' in content:
             content = re.sub(
                 r'namespace\s*=\s*"[^"]*"',
@@ -109,7 +121,7 @@ def update_gradle(build_gradle_path: Path, package_name: str):
             )
             log("Added namespace to build.gradle.kts")
         
-
+        # Update applicationId
         if 'applicationId' in content:
             content = re.sub(
                 r'applicationId\s*=\s*"[^"]*"',
@@ -126,9 +138,9 @@ def update_gradle(build_gradle_path: Path, package_name: str):
             )
             log("Added applicationId to build.gradle.kts")
     
-    # Groovy
+    # For Groovy DSL
     else:
- 
+        # Update or add namespace (matches both syntaxes: namespace "..." and namespace = "...")
         namespace_pattern = r'namespace\s*[=]?\s*["\'][^"\']*["\']'
         if re.search(namespace_pattern, content):
             content = re.sub(
@@ -138,7 +150,7 @@ def update_gradle(build_gradle_path: Path, package_name: str):
             )
             log("Updated namespace in build.gradle")
         else:
-
+            # Add namespace after android { opening
             content = re.sub(
                 r'(android\s*\{)',
                 f'\\1\n    namespace "{package_name}"',
@@ -147,7 +159,7 @@ def update_gradle(build_gradle_path: Path, package_name: str):
             )
             log("Added namespace to build.gradle")
         
-
+        # Update or add applicationId
         appid_pattern = r'applicationId\s*[=]?\s*["\'][^"\']*["\']'
         if re.search(appid_pattern, content):
             content = re.sub(
@@ -157,7 +169,7 @@ def update_gradle(build_gradle_path: Path, package_name: str):
             )
             log("Updated applicationId in build.gradle")
         else:
-        
+            # Add applicationId after defaultConfig { opening
             content = re.sub(
                 r'(defaultConfig\s*\{)',
                 f'\\1\n        applicationId "{package_name}"',
@@ -181,14 +193,14 @@ def update_manifest(manifest_path: Path, host_name: str, package_name: str):
     try:
         content = manifest_path.read_text()
         
-  
+        # Remove package attribute (deprecated in AGP 7.0+, should only be in build.gradle)
         content = re.sub(r'\s*package="[^"]*"', '', content)
         log("Removed deprecated package attribute from manifest")
         
-
+        # Clean the host name
         clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0].split('?')[0]
         
-    
+        # Update android:host attributes (for intent filters and data tags)
         if 'android:host=' in content:
             content = re.sub(r'android:host="[^"]*"', f'android:host="{clean_host}"', content)
             log(f"Updated android:host to {clean_host}")
@@ -207,14 +219,15 @@ def main():
     log("=" * 60)
     
     try:
-
+        # Read environment variables
+        # BUILD_ID is optional, not used in the script
         build_id = os.getenv('BUILD_ID', 'local')
         
-  
+        # Required variables
         host_name = read_env_or_fail('HOST_NAME')
         app_name = read_env_or_fail('APP_NAME')
         
-   
+        # Optional variables with defaults
         launch_url = os.getenv('LAUNCH_URL', '/')
         launcher_name = os.getenv('LAUNCHER_NAME', app_name)
         theme_color = os.getenv('THEME_COLOR', '#171717')
@@ -227,7 +240,7 @@ def main():
         log(f"Launcher Name: {launcher_name}")
         log(f"Launch URL: {launch_url}")
 
-
+        # Locate android project
         app_dir = Path('android-project/app')
         if not app_dir.exists():
             log(f"ERROR: App directory not found at {app_dir.resolve()}")
@@ -243,24 +256,24 @@ def main():
             
         log(f"Using app directory: {app_dir.resolve()}")
 
-    
+        # Generate package name
         package_name = generate_package_name(host_name)
         log("=" * 60)
 
-   
+        # Update Gradle build files
         log("Updating Gradle configuration...")
         for gradle_file in ['build.gradle', 'build.gradle.kts']:
             build_path = app_dir / gradle_file
             if build_path.exists():
                 update_gradle(build_path, package_name)
         
-
+        # Update AndroidManifest.xml
         log("Updating AndroidManifest.xml...")
         manifest_path = main_dir / 'AndroidManifest.xml'
         if not update_manifest(manifest_path, host_name, package_name):
             log("WARNING: Failed to update manifest, but continuing...")
 
-   
+        # Update resource files
         log("Creating/updating resource files...")
         res_dir = main_dir / 'res'
         values_dir = ensure_resources(res_dir)
