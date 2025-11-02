@@ -38,7 +38,7 @@ jobs:
 
     - name: Customize Android project
       run: |
-        python3 scripts/customize-project.py
+        python3 scripts/customize-project.py android-project
       env:
         BUILD_ID: ${{ github.run_id }}
         HOST_NAME: ${{ github.event.client_payload.hostName }}
@@ -60,6 +60,7 @@ jobs:
       with:
         name: ${{ github.event.client_payload.name }}-app
         path: android-project/app/build/outputs/apk/debug/app-debug.apk
+
 
 
 
