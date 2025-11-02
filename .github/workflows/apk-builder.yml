@@ -47,9 +47,16 @@ jobs:
         chmod +x gradlew
         ./gradlew assembleDebug
         
-        # Use full path to Android SDK tools
-        $ANDROID_HOME/build-tools/*/zipalign -p 4 app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-signed.apk
-        $ANDROID_HOME/build-tools/*/apksigner sign --ks android.keystore --ks-pass pass:123321 --key-pass pass:123321 --ks-key-alias android app/build/outputs/apk/debug/app-signed.apk
+        # Find the actual build-tools path
+        BUILD_TOOLS_PATH=$(find $ANDROID_HOME/build-tools -name "zipalign" | head -1 | xargs dirname)
+        echo "Using build-tools: $BUILD_TOOLS_PATH"
+        
+        # Zipalign and sign
+        $BUILD_TOOLS_PATH/zipalign -p 4 app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-signed.apk
+        $BUILD_TOOLS_PATH/apksigner sign --ks android.keystore --ks-pass pass:123321 --key-pass pass:123321 --ks-key-alias android app/build/outputs/apk/debug/app-signed.apk
+        
+        # Verify the signature
+        $BUILD_TOOLS_PATH/apksigner verify --verbose app/build/outputs/apk/debug/app-signed.apk
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
