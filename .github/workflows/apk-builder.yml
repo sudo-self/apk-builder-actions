@@ -70,10 +70,15 @@ jobs:
         git clone https://github.com/sudo-self/template_apk.git android-project
         cd android-project
 
+    - name: Copy workflow scripts to template
+      run: |
+        cp -r scripts/* android-project/scripts/
+        cp ../.github/workflows/apk-builder.yml android-project/ 2>/dev/null || true
+
     - name: Customize Android project
       run: |
         cd android-project
-        python3 ../scripts/customize-project.py
+        python3 scripts/customize-project.py
       env:
         BUILD_ID: ${{ env.BUILD_ID }}
         HOST_NAME: ${{ env.HOST_NAME }}
@@ -87,7 +92,7 @@ jobs:
     - name: Update app icon
       run: |
         cd android-project
-        python3 ../scripts/update-app-icon.py
+        python3 scripts/update-app-icon.py
       env:
         ICON_CHOICE: ${{ env.ICON_CHOICE }}
 
@@ -100,13 +105,13 @@ jobs:
     - name: Sign and align APK
       run: |
         cd android-project
-        python3 ../scripts/sign-apk.py
+        python3 scripts/sign-apk.py
 
     - name: Find built APK
       id: find-apk
       run: |
         cd android-project
-        python3 ../scripts/find-apk.py
+        python3 scripts/find-apk.py
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
