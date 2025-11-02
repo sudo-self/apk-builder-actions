@@ -12,19 +12,29 @@ def find_apk_files():
     # More comprehensive search patterns
     search_patterns = [
         "**/build/outputs/apk/**/*.apk",
-        "**/build/outputs/bundle/**/*.apk",
+        "**/build/outputs/bundle/**/*.apk", 
         "**/build/**/*.apk",
         "**/*.apk"
     ]
     
     for pattern in search_patterns:
         files = glob.glob(pattern, recursive=True)
-        # Filter out test APKs and unaligned APKs
+        # Prefer signed APKs
         filtered_files = [
             f for f in files 
-            if not any(exclude in f.lower() for exclude in ['test', 'unaligned'])
+            if 'signed' in f.lower() and not any(exclude in f.lower() for exclude in ['test', 'unaligned'])
         ]
         apk_files.extend(filtered_files)
+    
+    # If no signed APKs found, look for any APK
+    if not apk_files:
+        for pattern in search_patterns:
+            files = glob.glob(pattern, recursive=True)
+            filtered_files = [
+                f for f in files 
+                if not any(exclude in f.lower() for exclude in ['test', 'unaligned'])
+            ]
+            apk_files.extend(filtered_files)
     
     # Remove duplicates and sort by modification time (newest first)
     apk_files = list(set(apk_files))
@@ -49,12 +59,23 @@ def check_apk_signed(apk_path):
     """Check if APK is signed using apksigner"""
     try:
         import subprocess
-        result = subprocess.run(
-            ['apksigner', 'verify', '--print-certs', apk_path],
-            capture_output=True, text=True, timeout=30
-        )
-        return result.returncode == 0
-    except:
+        
+        # Find apksigner
+        sdk_path = os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT')
+        if sdk_path:
+            build_tools_path = Path(sdk_path) / 'build-tools'
+            if build_tools_path.exists():
+                versions = [d for d in build_tools_path.iterdir() if d.is_dir()]
+                if versions:
+                    versions.sort()
+                    apksigner_path = versions[-1] / 'apksigner'
+                    
+                    result = subprocess.run(
+                        [str(apksigner_path), 'verify', '--print-certs', apk_path],
+                        capture_output=True, text=True, timeout=30
+                    )
+                    return result.returncode == 0
+        
         # Fallback: check if file contains META-INF (basic check)
         try:
             import zipfile
@@ -62,84 +83,45 @@ def check_apk_signed(apk_path):
                 return any('META-INF/' in name for name in z.namelist())
         except:
             return False
-
-def print_directory_structure():
-    """Print relevant build directory structure"""
-    print("\n📁 Build directory structure:")
-    
-    build_dirs = [
-        "android-project/app/build/outputs",
-        "app/build/outputs", 
-        "build/outputs",
-        "android-project/build"
-    ]
-    
-    for build_dir in build_dirs:
-        if os.path.exists(build_dir):
-            print(f"\n📍 {build_dir}:")
-            for root, dirs, files in os.walk(build_dir):
-                level = root.replace(build_dir, "").count(os.sep)
-                if level > 2:  # Limit depth
-                    continue
-                    
-                indent = "  " * level
-                print(f"{indent}{os.path.basename(root)}/")
-                
-                # Show APK files immediately
-                apk_files = [f for f in files if f.endswith('.apk')]
-                for apk_file in apk_files[:5]:
-                    print(f"{indent}  📦 {apk_file}")
+            
+    except:
+        return False
 
 def main():
-    print("🔍 Searching for APK files...")
+    print("Searching for APK files...")
     
     apk_files = find_apk_files()
     
     if not apk_files:
-        print("❌ No APK files found")
-        print_directory_structure()
-        
-        # Check if build was successful
-        build_dirs = [
-            "android-project/app/build",
-            "app/build", 
-            "build"
-        ]
-        
-        for build_dir in build_dirs:
-            if os.path.exists(build_dir):
-                print(f"\n✅ Build directory exists: {build_dir}")
-            else:
-                print(f"\n❌ Build directory missing: {build_dir}")
-                
+        print("No APK files found")
         return 1
     
-    print(f"✅ Found {len(apk_files)} APK file(s):")
+    print(f"Found {len(apk_files)} APK file(s):")
     
     apk_info = []
     for apk_file in apk_files:
         info = analyze_apk(apk_file)
         apk_info.append(info)
         
-        status = "✅" if info.get('is_signed', False) else "⚠️"
+        status = "SIGNED" if info.get('is_signed', False) else "UNSIGNED"
         print(f"  {status} {apk_file} ({info['size_mb']} MB)")
         if not info.get('is_signed', False):
-            print("     ⚠️  APK may not be signed (will not install)")
+            print("     WARNING: APK may not be signed (will not install)")
     
-    # Prefer signed release APKs
+    # Prefer signed APKs
     signed_apks = [info for info in apk_info if info.get('is_signed', False)]
     release_apks = [info for info in apk_info if 'release' in info['path'].lower()]
     
     if signed_apks:
         main_apk = signed_apks[0]['path']
-        print(f"🎯 Using signed APK: {main_apk}")
+        print(f"Using signed APK: {main_apk}")
     elif release_apks:
         main_apk = release_apks[0]['path']
-        print(f"🎯 Using release APK: {main_apk}")
+        print(f"Using release APK: {main_apk}")
     else:
         main_apk = apk_files[0]
-        print(f"🎯 Using first found APK: {main_apk}")
-        print("⚠️  Warning: This APK may not be signed and might not install")
+        print(f"Using first found APK: {main_apk}")
+        print("WARNING: This APK may not be signed and might not install")
 
     # Write to GitHub outputs
     with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
