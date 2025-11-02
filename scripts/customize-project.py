@@ -120,16 +120,22 @@ def main():
         theme_color_dark = os.getenv('THEME_COLOR_DARK', '#000000')
         background_color = os.getenv('BACKGROUND_COLOR', '#FFFFFF')
 
-        # --- FIXED: detect app module correctly ---
+        # --- FIXED: robust Android project detection ---
         possible_dirs = [
+            Path('.'),
+            Path('android-project'),
             Path('app'),
-            Path('.')
+            Path('..') / 'android-project'
         ]
         app_dir = None
         for possible in possible_dirs:
-            if (possible / 'src' / 'main').exists():
+            if (possible / 'app' / 'src' / 'main').exists():
+                app_dir = possible / 'app'
+                break
+            elif (possible / 'src' / 'main').exists():
                 app_dir = possible
                 break
+
         if not app_dir:
             log("Error: Could not find Android project")
             return 1
@@ -138,8 +144,7 @@ def main():
         package_name = generate_package_name(host_name)
 
         for f in ['build.gradle', 'build.gradle.kts']:
-            build_path = app_dir / f
-            update_gradle(build_path, package_name)
+            update_gradle(app_dir / f, package_name)
 
         manifest_path = app_dir / 'src' / 'main' / 'AndroidManifest.xml'
         if not update_manifest(manifest_path, host_name):
@@ -161,5 +166,6 @@ def main():
 
 if __name__ == '__main__':
     exit(main())
+
 
 
