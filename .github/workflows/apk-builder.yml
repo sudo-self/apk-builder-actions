@@ -1,4 +1,5 @@
 name: apk.jessejesse.com
+
 on:
   repository_dispatch:
     types: [apk_build]
@@ -136,7 +137,6 @@ EOF
           APK_SIGNER="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)/apksigner"
           $APK_SIGNER verify --verbose --print-certs "./${{ env.apk_name }}"
           echo "APK signature verified"
-        shell: bash
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -153,9 +153,11 @@ EOF
           name: ${{ github.event.client_payload.name }} v1.0.${{ github.run_number }}
           body: |
             ## ${{ github.event.client_payload.name }}
+
             **Build:** #${{ github.run_number }}
             **Host:** ${{ github.event.client_payload.hostName }}
             **Launch URL:** ${{ github.event.client_payload.launchUrl }}
+
             Download and install the APK below.
           files: ./${{ env.apk_name }}
           draft: false
