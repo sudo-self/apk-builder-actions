@@ -144,10 +144,10 @@ jobs:
         
         echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
         
-    - name: Verify APK signature
-      run: |
-        $ANDROID_HOME/build-tools/*/apksigner verify --verbose "./${{ env.apk_name }}"
-        echo "APK signature verified"
+- name: Verify APK signature
+  run: |
+    $ANDROID_HOME/build-tools/*/apksigner verify --print-certs "./${{ env.apk_name }}"
+    echo "APK signature verified"
         
     - name: Upload APK
       uses: actions/upload-artifact@v4
