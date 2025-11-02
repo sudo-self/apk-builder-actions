@@ -32,6 +32,21 @@ on:
         description: 'Background Color'
         required: true
         default: '#FFFFFF'
+      iconChoice:
+        description: 'Icon Choice'
+        required: false
+        default: 'default'
+
+env:
+  BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+  HOST_NAME: ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}
+  LAUNCH_URL: ${{ github.event.client_payload.launchUrl || github.event.inputs.launchUrl }}
+  APP_NAME: ${{ github.event.client_payload.name || github.event.inputs.name }}
+  LAUNCHER_NAME: ${{ github.event.client_payload.launcherName || github.event.inputs.launcherName }}
+  THEME_COLOR: ${{ github.event.client_payload.themeColor || github.event.inputs.themeColor }}
+  THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark || github.event.inputs.themeColorDark }}
+  BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor || github.event.inputs.backgroundColor }}
+  ICON_CHOICE: ${{ github.event.client_payload.iconChoice || github.event.inputs.iconChoice }}
 
 jobs:
   build-apk:
@@ -52,22 +67,68 @@ jobs:
 
     - name: Clone template project
       run: |
-        git clone https://github.com/sudo-self/template_apk.git
-        cd template_apk
+        git clone https://github.com/sudo-self/template_apk.git android-project
+        cd android-project
 
-    - name: Run APK Builder Script
+    - name: Customize Android project
       run: |
-        cd template_apk
-        python3 build_apk.py "${{ toJson(github.event.client_payload) }}"
+        cd android-project
+        python3 ../scripts/customize-project.py
       env:
-        BUILD_DATA: ${{ toJson(github.event.client_payload) }}
+        BUILD_ID: ${{ env.BUILD_ID }}
+        HOST_NAME: ${{ env.HOST_NAME }}
+        LAUNCH_URL: ${{ env.LAUNCH_URL }}
+        APP_NAME: ${{ env.APP_NAME }}
+        LAUNCHER_NAME: ${{ env.LAUNCHER_NAME }}
+        THEME_COLOR: ${{ env.THEME_COLOR }}
+        THEME_COLOR_DARK: ${{ env.THEME_COLOR_DARK }}
+        BACKGROUND_COLOR: ${{ env.BACKGROUND_COLOR }}
+
+    - name: Update app icon
+      run: |
+        cd android-project
+        python3 ../scripts/update-app-icon.py
+      env:
+        ICON_CHOICE: ${{ env.ICON_CHOICE }}
+
+    - name: Build APK
+      run: |
+        cd android-project
+        chmod +x gradlew
+        ./gradlew assembleDebug
+
+    - name: Sign and align APK
+      run: |
+        cd android-project
+        python3 ../scripts/sign-apk.py
+
+    - name: Find built APK
+      id: find-apk
+      run: |
+        cd android-project
+        python3 ../scripts/find-apk.py
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: built-apk
-        path: template_apk/app/build/outputs/apk/debug/app-debug-signed.apk
+        name: ${{ env.APP_NAME }}-${{ env.BUILD_ID }}
+        path: android-project/${{ steps.find-apk.outputs.apk_path }}
         retention-days: 7
+
+    - name: Notify webhook success
+      if: success()
+      run: python3 scripts/notify-webhook.py success
+      env:
+        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        BUILD_ID: ${{ env.BUILD_ID }}
+        ARTIFACT_NAME: ${{ env.APP_NAME }}-${{ env.BUILD_ID }}
+
+    - name: Notify webhook failure
+      if: failure()
+      run: python3 scripts/notify-webhook.py failure
+      env:
+        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        BUILD_ID: ${{ env.BUILD_ID }}
 
 
 
