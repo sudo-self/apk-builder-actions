@@ -38,8 +38,8 @@ jobs:
 
       - name: Decode keystore
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > android-project/my-release-key.jks
-          if [ ! -f android-project/my-release-key.jks ]; then
+          echo "$KEYSTORE_BASE64" | base64 --decode > android-project/android.keystore
+          if [ ! -f android-project/android.keystore ]; then
             echo "Keystore file not created"
             exit 1
           fi
