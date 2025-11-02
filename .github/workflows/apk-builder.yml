@@ -18,38 +18,34 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Clone template
+    - name: Clone and customize
       run: |
         git clone https://github.com/sudo-self/template_apk.git android-project
-
-    - name: Simple customization - Update URL and name
-      run: |
         cd android-project
         
-        # Update the URL in MainActivity.java
-        sed -i "s|https://example.com|$HOST_NAME|g" app/src/main/java/com/example/webviewapp/MainActivity.java
-        sed -i "s|example.com|$HOST_NAME|g" app/src/main/java/com/example/webviewapp/MainActivity.java
+        # Update all the URLs and names in strings.xml
+        sed -i "s|<string name=\"hostName\">[^<]*</string>|<string name=\"hostName\">$HOST_NAME</string>|g" app/src/main/res/values/strings.xml
+        sed -i "s|<string name=\"launchUrl\">[^<]*</string>|<string name=\"launchUrl\">https://$HOST_NAME$LAUNCH_URL</string>|g" app/src/main/res/values/strings.xml
+        sed -i "s|<string name=\"appName\">[^<]*</string>|<string name=\"appName\">$APP_NAME</string>|g" app/src/main/res/values/strings.xml
+        sed -i "s|<string name=\"launcherName\">[^<]*</string>|<string name=\"launcherName\">$LAUNCHER_NAME</string>|g" app/src/main/res/values/strings.xml
         
-        # Update app name in strings.xml
-        sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|g" app/src/main/res/values/strings.xml
-        sed -i "s|<string name=\"launcher_name\">.*</string>|<string name=\"launcher_name\">$LAUNCHER_NAME</string>|g" app/src/main/res/values/strings.xml
+        # Update web manifest URL if it exists
+        sed -i "s|<string name=\"webManifestUrl\">[^<]*</string>|<string name=\"webManifestUrl\">https://$HOST_NAME/manifest.json</string>|g" app/src/main/res/values/strings.xml || true
         
-        echo "Updated URL to: $HOST_NAME"
+        echo "Updated hostName to: $HOST_NAME"
+        echo "Updated launchUrl to: https://$HOST_NAME$LAUNCH_URL"
         echo "Updated app name to: $APP_NAME"
       env:
         HOST_NAME: ${{ github.event.client_payload.hostName }}
+        LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
         APP_NAME: ${{ github.event.client_payload.name }}
         LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
 
-    - name: Build APK
+    - name: Build and sign
       run: |
         cd android-project
         chmod +x gradlew
         ./gradlew assembleDebug
-
-    - name: Sign APK
-      run: |
-        cd android-project
         zipalign -p 4 app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-signed.apk
         apksigner sign --ks android.keystore --ks-pass pass:123321 --key-pass pass:123321 --ks-key-alias android app/build/outputs/apk/debug/app-signed.apk
 
