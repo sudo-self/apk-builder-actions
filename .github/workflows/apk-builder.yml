@@ -1,4 +1,4 @@
-name: APK Builder
+name: APK Builder (Bubblewrap)
 on:
   repository_dispatch:
     types: [apk_build]
@@ -15,93 +15,159 @@ jobs:
       with:
         node-version: '20'
         
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-        
     - name: Setup JDK
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
         
-    - name: Clone Android template
-      run: git clone https://github.com/sudo-self/template_apk.git android-project
-      
     - name: Cache Gradle packages
       uses: actions/cache@v3
       with:
         path: |
           ~/.gradle/caches
           ~/.gradle/wrapper
-        key: gradle-${{ runner.os }}-${{ hashFiles('android-project/**/gradle-wrapper.properties') }}
+        key: gradle-${{ runner.os }}-bubblewrap
         restore-keys: |
           gradle-${{ runner.os }}-
           
     - name: Decode keystore
-      run: echo "$KEYSTORE_BASE64" | base64 --decode > android-project/my-release-key.jks
-      env:
-        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        
-    - name: Verify keystore
       run: |
-        if [ ! -f android-project/my-release-key.jks ]; then
-          echo "Keystore file not created"
+        echo "$KEYSTORE_BASE64" | base64 --decode > my-release-key.jks
+        if [ ! -f my-release-key.jks ]; then
+          echo "❌ Keystore file not created"
           exit 1
         fi
-        
-    - name: Customize Android project
-      run: python3 scripts/customize-project.py
+        echo "✅ Keystore decoded successfully"
       env:
-        BUILD_ID: ${{ github.run_id }}
-        HOST_NAME: ${{ github.event.client_payload.hostName }}
-        LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
-        APP_NAME: ${{ github.event.client_payload.name }}
-        LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
-        THEME_COLOR: ${{ github.event.client_payload.themeColor }}
-        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
-        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         
     - name: Install Bubblewrap
       run: npm install -g @bubblewrap/cli
       
-    - name: Make Gradlew Executable
-      run: chmod +x android-project/gradlew
-      
-    - name: Build APK with Bubblewrap
-      working-directory: android-project
+    - name: Generate package name
+      id: package
       run: |
-        bubblewrap build \
-          --manifest="${{ github.event.client_payload.manifestUrl || github.event.client_payload.launchUrl }}/manifest.json" \
-          --name="${{ github.event.client_payload.name }}" \
-          --keystore=./my-release-key.jks \
-          --keystore-password="$KEYSTORE_PASSWORD" \
-          --key-alias="$KEY_ALIAS" \
-          --key-password="$KEY_PASSWORD"
+        HOST="${{ github.event.client_payload.hostName }}"
+        CLEAN_HOST=$(echo "$HOST" | sed -e 's|https\?://||' -e 's|www\.||' -e 's|/.*||')
+        
+        # Reverse domain name
+        IFS='.' read -ra PARTS <<< "$CLEAN_HOST"
+        REVERSED=""
+        for ((i=${#PARTS[@]}-1; i>=0; i--)); do
+          PART="${PARTS[i]}"
+          # Remove invalid characters
+          PART=$(echo "$PART" | sed 's/[^a-zA-Z0-9_]//g')
+          # Add 'a' prefix if starts with digit
+          if [[ "$PART" =~ ^[0-9] ]]; then
+            PART="a$PART"
+          fi
+          if [ -n "$REVERSED" ]; then
+            REVERSED="${REVERSED}.${PART}"
+          else
+            REVERSED="$PART"
+          fi
+        done
+        
+        PACKAGE_NAME=$(echo "$REVERSED" | tr '[:upper:]' '[:lower:]')
+        echo "package_name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
+        echo "📦 Package name: $PACKAGE_NAME"
+        
+    - name: Initialize Bubblewrap project
+      run: |
+        bubblewrap init \
+          --manifest="${{ github.event.client_payload.launchUrl }}/manifest.json" \
+          --directory=./twa-project
       env:
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        BUBBLEWRAP_KEYSTORE_PATH: ${{ github.workspace }}/my-release-key.jks
+        BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        BUBBLEWRAP_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        
+    - name: Customize TWA configuration
+      run: |
+        cd twa-project
+        
+        # Update twa-manifest.json with custom values
+        cat > twa-manifest.json <<EOF
+        {
+          "packageId": "${{ steps.package.outputs.package_name }}",
+          "host": "${{ github.event.client_payload.hostName }}",
+          "name": "${{ github.event.client_payload.name }}",
+          "launcherName": "${{ github.event.client_payload.launcherName || github.event.client_payload.name }}",
+          "display": "standalone",
+          "themeColor": "${{ github.event.client_payload.themeColor || '#171717' }}",
+          "navigationColor": "${{ github.event.client_payload.themeColorDark || '#000000' }}",
+          "backgroundColor": "${{ github.event.client_payload.backgroundColor || '#FFFFFF' }}",
+          "startUrl": "${{ github.event.client_payload.launchUrl || '/' }}",
+          "iconUrl": "${{ github.event.client_payload.iconUrl || github.event.client_payload.launchUrl }}/icon-192.png",
+          "maskableIconUrl": "${{ github.event.client_payload.maskableIconUrl || github.event.client_payload.launchUrl }}/icon-maskable-192.png",
+          "splashScreenFadeOutDuration": 300,
+          "signingKey": {
+            "path": "${{ github.workspace }}/my-release-key.jks",
+            "alias": "${{ secrets.KEY_ALIAS }}"
+          },
+          "appVersionName": "1.0.${{ github.run_number }}",
+          "appVersionCode": ${{ github.run_number }},
+          "shortcuts": [],
+          "generatorApp": "github-actions"
+        }
+        EOF
+        
+        echo "✅ TWA manifest configured"
+        cat twa-manifest.json
+        
+    - name: Build APK
+      run: |
+        cd twa-project
+        
+        # Make gradlew executable
+        chmod +x gradlew
+        
+        # Build the APK
+        bubblewrap build \
+          --skipPwaValidation
+      env:
+        BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         
     - name: Find and rename APK
       run: |
-        APK_FILE=$(find android-project -name "*.apk" -type f | head -n 1)
+        APK_FILE=$(find twa-project/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
+        
         if [ -z "$APK_FILE" ]; then
-          echo "No APK file found"
+          echo "❌ No APK file found"
+          find twa-project -name "*.apk" -type f
           exit 1
         fi
-        mv "$APK_FILE" "./${{ github.event.client_payload.name }}.apk"
+        
+        CLEAN_NAME=$(echo "${{ github.event.client_payload.name }}" | sed 's/[^a-zA-Z0-9._-]/_/g')
+        OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
+        
+        cp "$APK_FILE" "./$OUTPUT_NAME"
+        echo "✅ APK created: $OUTPUT_NAME"
+        ls -lh "$OUTPUT_NAME"
+        
+        echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
         
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: ${{ github.event.client_payload.name }}-app
-        path: ./${{ github.event.client_payload.name }}.apk
+        path: ./${{ env.apk_name }}
         retention-days: 30
+        
+    - name: Create Release (optional)
+      if: github.event.client_payload.createRelease == 'true'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: build-${{ github.run_number }}
+        name: ${{ github.event.client_payload.name }} v1.0.${{ github.run_number }}
+        files: ./${{ env.apk_name }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
 
