@@ -5,6 +5,7 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 import traceback
+import sys
 
 def log(msg):
     print(f"[CUSTOMIZE] {msg}")
@@ -97,21 +98,15 @@ def update_gradle(build_gradle_path: Path, package_name: str):
         build_gradle_path.write_text(content)
         log(f"Saved changes to {build_gradle_path}")
 
-def update_manifest(manifest_path: Path, host_name: str, package_name: str):
+def update_manifest(manifest_path: Path, host_name: str):
     if not manifest_path.exists():
         log(f"Manifest not found: {manifest_path}")
         return False
     content = manifest_path.read_text()
-
-    # Update package attribute
-    content = re.sub(r'(<manifest[^>]*\b)package\s*=\s*["\'][^"\']*["\']', rf'\1package="{package_name}"', content)
-
-    # Update intent filter host
     clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
     content = re.sub(r'android:host="[^"]*"', f'android:host="{clean_host}"', content)
-
     manifest_path.write_text(content)
-    log(f"Updated AndroidManifest.xml at {manifest_path}")
+    log(f"Updated intent filter host in {manifest_path}")
     return True
 
 def main():
@@ -126,32 +121,31 @@ def main():
         theme_color_dark = os.getenv('THEME_COLOR_DARK', '#000000')
         background_color = os.getenv('BACKGROUND_COLOR', '#FFFFFF')
 
-        # **Always point to 'app' directory inside android-project**
-        app_dir = Path('app')
+        # Get target Android project path (default 'android-project')
+        target_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path('android-project')
+        app_dir = target_dir / 'app'
         if not (app_dir / 'src' / 'main').exists():
             log(f"Error: Could not find Android project at {app_dir.resolve()}")
             return 1
-        log(f"Using app directory: {app_dir.resolve()}")
+        log(f"Using app dir: {app_dir.resolve()}")
 
         package_name = generate_package_name(host_name)
 
-        # Update build.gradle(s)
         for f in ['build.gradle', 'build.gradle.kts']:
-            update_gradle(app_dir / f, package_name)
+            build_path = app_dir / f
+            update_gradle(build_path, package_name)
 
-        # Update AndroidManifest.xml
         manifest_path = app_dir / 'src' / 'main' / 'AndroidManifest.xml'
-        if not update_manifest(manifest_path, host_name, package_name):
+        if not update_manifest(manifest_path, host_name):
             log("Failed to update manifest")
             return 1
 
-        # Update resources
         res_dir = app_dir / 'src' / 'main' / 'res'
         values_dir = ensure_resources(res_dir)
         create_strings_xml(values_dir, app_name, launcher_name, host_name, launch_url)
         create_colors_xml(values_dir, theme_color, theme_color_dark, background_color)
 
-        log("✅ Android project customization completed successfully!")
+        log("✅ Android project customization completed!")
         return 0
 
     except Exception as e:
@@ -161,6 +155,7 @@ def main():
 
 if __name__ == '__main__':
     exit(main())
+
 
 
 
