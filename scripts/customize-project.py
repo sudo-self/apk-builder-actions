@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python#!/usr/bin/env python3
 
 import os
 import re
@@ -121,8 +121,22 @@ def main():
         theme_color_dark = os.getenv('THEME_COLOR_DARK', '#000000')
         background_color = os.getenv('BACKGROUND_COLOR', '#FFFFFF')
 
+        log(f"Build ID: {build_id}")
+        log(f"Host Name: {host_name}")
+        log(f"Launch URL: {launch_url}")
+        log(f"App Name: {app_name}")
+
+        # --- FIXED app_dir detection ---
         possible_dirs = [Path('.'), Path('android-project'), Path('app'), Path('..') / 'android-project']
-        app_dir = next((p / 'app' if (p / 'app' / 'src' / 'main').exists() else p for p in possible_dirs if (p / 'src' / 'main').exists()), None)
+        app_dir = None
+        for possible in possible_dirs:
+            if (possible / 'app' / 'src' / 'main').exists():
+                app_dir = possible / 'app'
+                break
+            elif (possible / 'src' / 'main').exists():
+                app_dir = possible
+                break
+
         if not app_dir:
             log("Error: Could not find Android project")
             return 1
@@ -131,8 +145,7 @@ def main():
         package_name = generate_package_name(host_name)
 
         for f in ['build.gradle', 'build.gradle.kts']:
-            build_path = app_dir / f
-            update_gradle(build_path, package_name)
+            update_gradle(app_dir / f, package_name)
 
         manifest_path = app_dir / 'src' / 'main' / 'AndroidManifest.xml'
         if not update_manifest(manifest_path, host_name):
@@ -144,7 +157,7 @@ def main():
         create_strings_xml(values_dir, app_name, launcher_name, host_name, launch_url)
         create_colors_xml(values_dir, theme_color, theme_color_dark, background_color)
 
-        log("✅ Android project customization completed!")
+        log("✅ Android project customization completed successfully!")
         return 0
 
     except Exception as e:
@@ -154,7 +167,3 @@ def main():
 
 if __name__ == '__main__':
     exit(main())
-
-
-
-
