@@ -1,4 +1,5 @@
-name: apk.jessejesse.com
+name: APK Builder
+
 on:
   repository_dispatch:
     types: [apk_build]
@@ -6,21 +7,26 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+
     steps:
+      # 1. Checkout repository
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 2. Set up Python for customization script
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
+      # 3. Set up Java
       - name: Setup JDK
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
+      # 4. Cache Gradle
       - name: Cache Gradle packages
         uses: actions/cache@v3
         with:
@@ -31,11 +37,11 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      # 5. Clone Android template
       - name: Clone Android template
-        run: |
-          git clone https://github.com/sudo-self/template_apk.git android-project
-          echo "Template cloned"
+        run: git clone https://github.com/sudo-self/template_apk.git android-project
 
+      # 6. Decode keystore from secret
       - name: Decode keystore
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > android-project/my-release-key.jks
@@ -47,19 +53,17 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
+      # 7. Validate required client payload variables
       - name: Verify environment variables
         run: |
-          echo "Checking required environment variables..."
-          if [ -z "${{ github.event.client_payload.hostName }}" ]; then
-            echo "ERROR: hostName is required in client_payload"
-            exit 1
-          fi
-          if [ -z "${{ github.event.client_payload.name }}" ]; then
-            echo "ERROR: name is required in client_payload"
-            exit 1
-          fi
-          echo "Required variables present"
+          for var in hostName name; do
+            if [ -z "${{ github.event.client_payload.$var }}" ]; then
+              echo "ERROR: $var is required in client_payload"
+              exit 1
+            fi
+          done
 
+      # 8. Run customization script
       - name: Customize Android project
         run: python3 scripts/customize-project.py
         env:
@@ -72,22 +76,22 @@ jobs:
           THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
           BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
 
+      # 9. Add signing config to gradle.properties
       - name: Setup signing config
         run: |
           cd android-project/app
           cat >> gradle.properties <<EOF
-# Signing Config
 RELEASE_STORE_FILE=../my-release-key.jks
 RELEASE_STORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}
 RELEASE_KEY_ALIAS=${{ secrets.KEY_ALIAS }}
 RELEASE_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}
 EOF
-          echo "Signing config added"
 
+      # 10. Add signing block to build.gradle if missing
       - name: Update build.gradle for signing
         run: |
           cd android-project/app
-          if ! grep -q "signingConfigs" build.gradle*; then
+          if ! grep -q "signingConfigs" build.gradle; then
             cat >> build.gradle <<'EOF'
 android {
     signingConfigs {
@@ -105,39 +109,39 @@ android {
     }
 }
 EOF
-            echo "Signing config added to build.gradle"
           fi
 
+      # 11. Make Gradlew executable
       - name: Make Gradlew Executable
         run: chmod +x android-project/gradlew
 
+      # 12. Build release APK
       - name: Build Release APK
         run: |
           cd android-project
           ./gradlew assembleRelease --stacktrace
 
+      # 13. Find APK and rename
       - name: Find and rename APK
         run: |
           APK_FILE=$(find android-project/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
           if [ -z "$APK_FILE" ]; then
             echo "No APK file found"
-            find android-project -name "*.apk" -type f
             exit 1
           fi
           CLEAN_NAME=$(echo "${{ github.event.client_payload.name }}" | sed 's/[^a-zA-Z0-9._-]/_/g')
           OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
           cp "$APK_FILE" "./$OUTPUT_NAME"
-          APK_SIZE=$(ls -lh "$OUTPUT_NAME" | awk '{print $5}')
-          echo "APK created: $OUTPUT_NAME ($APK_SIZE)"
           echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
+          echo "APK created: $OUTPUT_NAME"
 
+      # 14. Verify APK signature
       - name: Verify APK signature
         run: |
           APK_SIGNER="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)/apksigner"
           $APK_SIGNER verify --verbose --print-certs "./${{ env.apk_name }}"
-          echo "APK signature verified"
-        shell: bash
 
+      # 15. Upload artifact
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -145,6 +149,7 @@ EOF
           path: ./${{ env.apk_name }}
           retention-days: 30
 
+      # 16. Optional GitHub release
       - name: Create Release (optional)
         if: github.event.client_payload.createRelease == 'true'
         uses: softprops/action-gh-release@v1
@@ -158,9 +163,8 @@ EOF
             **Launch URL:** ${{ github.event.client_payload.launchUrl }}
             Download and install the APK below.
           files: ./${{ env.apk_name }}
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
