@@ -1,71 +1,49 @@
-name: APK Builder
+- name: Install Bubblewrap
+  run: npm install -g @bubblewrap/cli
 
-on:
-  repository_dispatch:
-    types: [apk_build]
+- name: Clone Android template
+  run: git clone https://github.com/sudo-self/template_apk.git android-project
 
-jobs:
-  build-apk:
-    runs-on: ubuntu-latest
+- name: Decode keystore
+  run: |
+    echo $KEYSTORE_BASE64 | base64 --decode > android-project/my-release-key.jks
+  env:
+    KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+- name: Customize and build APK (non-interactive)
+  run: |
+    cd android-project
+    npx bubblewrap init \
+      --manifest=$LAUNCH_URL/manifest.json \
+      --packageId=com.example.${APP_NAME,,} \
+      --name="$APP_NAME" \
+      --applicationName="$APP_NAME" \
+      --non-interactive
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+    npx bubblewrap update \
+      --keystore=my-release-key.jks \
+      --keystorePassword=$KEYSTORE_PASSWORD \
+      --keyAlias=$KEY_ALIAS \
+      --keyPassword=$KEY_PASSWORD \
+      --non-interactive
 
-    - name: Setup JDK
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+    npx bubblewrap build
 
-    - name: Cache Gradle packages
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.gradle/caches
-          ~/.gradle/wrapper
-        key: gradle-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
-        restore-keys: |
-          gradle-
+    # Rename APK to match app name
+    mv ./app/build/outputs/apk/release/app-release.apk ../${APP_NAME}.apk
+  env:
+    LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
+    APP_NAME: ${{ github.event.client_payload.name }}
+    KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+    KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+    KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-    - name: Clone Android template
-      run: git clone https://github.com/sudo-self/template_apk.git android-project
+- name: Upload APK
+  uses: actions/upload-artifact@v4
+  with:
+    name: ${{ github.event.client_payload.name }}-app
+    path: ./${{ github.event.client_payload.name }}.apk
 
-    - name: Customize Android project
-      run: |
-        python3 scripts/customize-project.py
-      env:
-        BUILD_ID: ${{ github.run_id }}
-        HOST_NAME: ${{ github.event.client_payload.hostName }}
-        LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
-        APP_NAME: ${{ github.event.client_payload.name }}
-        LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
-        THEME_COLOR: ${{ github.event.client_payload.themeColor }}
-        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
-        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
-        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-
-    - name: Build APK
-      run: |
-        cd android-project
-        chmod +x gradlew
-        ./gradlew assembleDebug
-        # Rename APK to match app name
-        mv app/build/outputs/apk/debug/app-debug.apk ../${{ github.event.client_payload.name }}.apk
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ github.event.client_payload.name }}-app
-        path: ./${{ github.event.client_payload.name }}.apk
 
 
 
