@@ -8,185 +8,68 @@ on:
       buildId:
         description: 'Build ID'
         required: true
-        default: 'test-build-123'
       hostName:
-        description: 'Host name'
+        description: 'Host Name'
         required: true
-        default: 'example.com'
+      launchUrl:
+        description: 'Launch URL'
+        required: true
       name:
-        description: 'App name'
+        description: 'App Name'
         required: true
-        default: 'Test App'
       launcherName:
-        description: 'Launcher name'
-        required: false
-        default: 'Test App'
+        description: 'Launcher Name'
+        required: true
       themeColor:
-        description: 'Theme color'
-        required: false
+        description: 'Theme Color'
+        required: true
         default: '#171717'
       themeColorDark:
-        description: 'Theme color dark'
-        required: false
+        description: 'Theme Color Dark'
+        required: true
         default: '#000000'
       backgroundColor:
-        description: 'Background color'
-        required: false
+        description: 'Background Color'
+        required: true
         default: '#FFFFFF'
 
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    
     steps:
-    - name: Checkout APK Builder repo
+    - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Checkout Template APK repo
-      uses: actions/checkout@v4
-      with:
-        repository: sudo-self/template_apk
-        token: ${{ secrets.GITHUB_TOKEN }}
-        path: android-project
-
-    - name: Setup Java
+    - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
-        distribution: 'temurin'
         java-version: '17'
+        distribution: 'temurin'
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-
-    - name: Debug - Show received inputs
+    - name: Clone template project
       run: |
-        echo "Build ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}"
-        echo "Host Name: ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}"
-        echo "App Name: ${{ github.event.client_payload.name || github.event.inputs.name }}"
-        echo "Launcher Name: ${{ github.event.client_payload.launcherName || github.event.inputs.launcherName }}"
-        echo "Theme Color: ${{ github.event.client_payload.themeColor || github.event.inputs.themeColor }}"
-        echo "Theme Color Dark: ${{ github.event.client_payload.themeColorDark || github.event.inputs.themeColorDark }}"
-        echo "Background Color: ${{ github.event.client_payload.backgroundColor || github.event.inputs.backgroundColor }}"
+        git clone https://github.com/sudo-self/template_apk.git
+        cd template_apk
 
-    - name: Customize Android Project
+    - name: Run APK Builder Script
+      run: |
+        cd template_apk
+        python3 build_apk.py "${{ toJson(github.event.client_payload) }}"
       env:
-        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
-        HOST_NAME: ${{ github.event.client_payload.hostName || github.event.inputs.hostName }}
-        LAUNCH_URL: ${{ github.event.client_payload.launchUrl || github.event.inputs.launchUrl || '/' }}
-        APP_NAME: ${{ github.event.client_payload.name || github.event.inputs.name }}
-        LAUNCHER_NAME: ${{ github.event.client_payload.launcherName || github.event.inputs.launcherName }}
-        THEME_COLOR: ${{ github.event.client_payload.themeColor || github.event.inputs.themeColor || '#171717' }}
-        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark || github.event.inputs.themeColorDark || '#000000' }}
-        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor || github.event.inputs.backgroundColor || '#FFFFFF' }}
-      run: |
-        python scripts/customize-project.py
+        BUILD_DATA: ${{ toJson(github.event.client_payload) }}
 
-    - name: Build APK
-      run: |
-        cd android-project
-        chmod +x gradlew
-        ./gradlew assembleRelease --no-daemon --stacktrace
-
-    - name: Find Built APK
-      id: find-apk
-      run: |
-        cd android-project
-        APK_PATH="app/build/outputs/apk/release/app-release-unsigned.apk"
-        if [ ! -f "$APK_PATH" ]; then
-          echo "APK not found at $APK_PATH"
-          find . -name "*.apk"
-          exit 1
-        fi
-        echo "APK_PATH=$APK_PATH" >> $GITHUB_OUTPUT
-        APK_SIZE=$(du -h "$APK_PATH" | cut -f1)
-        echo "APK_SIZE=$APK_SIZE" >> $GITHUB_OUTPUT
-
-    - name: Sign APK with android.keystore
-      id: sign-apk
-      run: |
-        cd android-project
-        UNSIGNED_APK="${{ steps.find-apk.outputs.APK_PATH }}"
-        SIGNED_APK="${UNSIGNED_APK%.apk}-signed.apk"
-
-        if [ ! -f "android.keystore" ]; then
-          echo "android.keystore not found!"
-          exit 1
-        fi
-
-        APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name "apksigner" | head -1)
-        if [ -z "$APKSIGNER" ]; then
-          echo "apksigner not found"
-          exit 1
-        fi
-
-        "$APKSIGNER" sign \
-          --ks android.keystore \
-          --ks-pass pass:123321 \
-          --key-pass pass:123321 \
-          --ks-key-alias android \
-          --out "$SIGNED_APK" \
-          "$UNSIGNED_APK"
-
-        echo "SIGNED_APK_PATH=$SIGNED_APK" >> $GITHUB_OUTPUT
-
-    - name: Zipalign APK
-      id: zipalign-apk
-      run: |
-        cd android-project
-        SIGNED_APK="${{ steps.sign-apk.outputs.SIGNED_APK_PATH }}"
-        ALIGNED_APK="${SIGNED_APK%.apk}-aligned.apk"
-
-        BUILD_TOOLS=$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)
-        ZIPALIGN="$ANDROID_HOME/build-tools/$BUILD_TOOLS/zipalign"
-
-        $ZIPALIGN -v 4 "$SIGNED_APK" "$ALIGNED_APK"
-
-        echo "ALIGNED_APK_PATH=$ALIGNED_APK" >> $GITHUB_OUTPUT
-
-    - name: Rename APK for User
-      id: rename-apk
-      run: |
-        cd android-project
-        ALIGNED_APK="${{ steps.zipalign-apk.outputs.ALIGNED_APK_PATH }}"
-        APP_NAME="${{ github.event.client_payload.name || github.event.inputs.name }}"
-        FINAL_APK_NAME="${APP_NAME// /-}-signed.apk"
-        FINAL_APK_PATH="$(dirname "$ALIGNED_APK")/$FINAL_APK_NAME"
-        cp "$ALIGNED_APK" "$FINAL_APK_PATH"
-        echo "FINAL_APK_PATH=$FINAL_APK_PATH" >> $GITHUB_OUTPUT
-        echo "FINAL_APK_NAME=$FINAL_APK_NAME" >> $GITHUB_OUTPUT
-
-    - name: Upload Signed APK Artifact
+    - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ github.event.client_payload.name || github.event.inputs.name }}-APK
-        path: android-project/${{ steps.rename-apk.outputs.FINAL_APK_PATH }}
+        name: built-apk
+        path: template_apk/app/build/outputs/apk/debug/app-debug.apk
         retention-days: 7
-        if-no-files-found: error
 
-    - name: Create Build Summary
+    - name: Show build info
       run: |
-        echo "APK Build Completed Successfully!" >> $GITHUB_STEP_SUMMARY
-        echo "- APK: ${{ steps.rename-apk.outputs.FINAL_APK_NAME }}" >> $GITHUB_STEP_SUMMARY
-        echo "- Size: ${{ steps.find-apk.outputs.APK_SIZE }} → ${{ steps.zipalign-apk.outputs.ALIGNED_APK_PATH }}" >> $GITHUB_STEP_SUMMARY
-
-      
-    - name: Notify Success via Webhook
-      if: success() && env.WEBHOOK_URL
-      run: |
-        python scripts/notify-webhook.py success
-      env:
-        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
-        ARTIFACT_NAME: apk-${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
-        
-    - name: Notify Failure via Webhook
-      if: failure() && env.WEBHOOK_URL
-      run: |
-        python scripts/notify-webhook.py failure
-      env:
-        WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        BUILD_ID: ${{ github.event.client_payload.buildId || github.event.inputs.buildId }}
+        echo "Build completed successfully!"
+        echo "APK is available in the artifacts section"
 
 
 
