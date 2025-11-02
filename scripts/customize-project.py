@@ -16,8 +16,10 @@ def read_env_or_fail(key, default=None):
     return value
 
 def generate_package_name(host_name: str):
+    """Generate a valid Android package name from host name."""
     clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0].split('?')[0]
     parts = [p for p in clean_host.split('.') if p]
+    
     if len(parts) >= 2:
         package_name = '.'.join(reversed(parts))
     else:
@@ -30,128 +32,228 @@ def generate_package_name(host_name: str):
         segment = re.sub(r'[^a-zA-Z0-9_]', '', segment)
         if segment:
             segments.append(segment)
+    
     if len(segments) < 2:
         segments = ['com', 'webapp'] + segments
+    
     final_package = '.'.join(segments).lower()
     log(f"Generated package name: {final_package}")
     return final_package
 
 def ensure_resources(res_dir: Path):
+    """Ensure resource directories exist."""
     res_dir.mkdir(parents=True, exist_ok=True)
     values_dir = res_dir / 'values'
     values_dir.mkdir(exist_ok=True)
     return values_dir
 
 def create_strings_xml(values_dir, app_name, launcher_name, host_name, launch_url):
+    """Create or update strings.xml with app configuration."""
     path = values_dir / 'strings.xml'
-    provider_authority = f"{generate_package_name(host_name)}.fileprovider"
+    package_name = generate_package_name(host_name)
+    provider_authority = f"{package_name}.fileprovider"
+    
+    # Clean the host name for use in strings
+    clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
+    
     content = f'''<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="appName">{app_name}</string>
     <string name="launcherName">{launcher_name}</string>
-    <string name="hostName">{host_name}</string>
+    <string name="hostName">{clean_host}</string>
     <string name="launchUrl">{launch_url}</string>
     <string name="providerAuthority">{provider_authority}</string>
 </resources>'''
+    
     path.write_text(content, encoding='utf-8')
-    log(f"Updated strings.xml at {path}")
+    log(f"Created/updated strings.xml at {path}")
 
 def create_colors_xml(values_dir, theme_color, theme_color_dark, background_color):
+    """Create or update colors.xml with theme colors."""
     path = values_dir / 'colors.xml'
+    
+    # Ensure colors start with #
+    def ensure_hash(color):
+        return color if color.startswith('#') else f'#{color}'
+    
+    theme_color = ensure_hash(theme_color)
+    theme_color_dark = ensure_hash(theme_color_dark)
+    background_color = ensure_hash(background_color)
+    
     content = f'''<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="colorPrimary">{theme_color}</color>
     <color name="colorPrimaryDark">{theme_color_dark}</color>
     <color name="backgroundColor">{background_color}</color>
+    <color name="navigationBarColor">{theme_color_dark}</color>
+    <color name="statusBarColor">{theme_color_dark}</color>
 </resources>'''
+    
     path.write_text(content, encoding='utf-8')
-    log(f"Updated colors.xml at {path}")
+    log(f"Created/updated colors.xml at {path}")
 
 def update_gradle(build_gradle_path: Path, package_name: str):
+    """Update build.gradle with package name and configuration."""
     if not build_gradle_path.exists():
         log(f"Warning: {build_gradle_path} not found")
         return
+    
     content = build_gradle_path.read_text()
     original = content
     is_kts = build_gradle_path.suffix == '.kts'
 
+    # Patterns for namespace and applicationId
     ns_pat = r'namespace\s*[:=]\s*["\'].*?["\']'
     id_pat = r'applicationId\s*[:=]?\s*["\'].*?["\']'
-    ns_repl = f'namespace = "{package_name}"' if is_kts else f'    namespace "{package_name}"'
-    id_repl = f'applicationId = "{package_name}"' if is_kts else f'    applicationId "{package_name}"'
+    
+    # Replacement strings
+    ns_repl = f'namespace = "{package_name}"' if is_kts else f'namespace "{package_name}"'
+    id_repl = f'applicationId = "{package_name}"' if is_kts else f'applicationId "{package_name}"'
 
+    # Update namespace
     if re.search(ns_pat, content, re.MULTILINE):
         content = re.sub(ns_pat, ns_repl, content, re.MULTILINE)
         log("Updated namespace in build.gradle")
     else:
-        content = re.sub(r'(^\s*android\s*\{)', r'\1\n' + ns_repl, content, count=1, flags=re.MULTILINE)
-        log("Inserted namespace in android block")
+        # Try to add namespace to android block
+        android_block = re.search(r'android\s*\{', content)
+        if android_block:
+            insert_pos = android_block.end()
+            content = content[:insert_pos] + f'\n    {ns_repl}\n' + content[insert_pos:]
+            log("Inserted namespace in android block")
 
+    # Update applicationId
     if re.search(id_pat, content, re.MULTILINE):
         content = re.sub(id_pat, id_repl, content, re.MULTILINE)
         log("Updated applicationId in build.gradle")
     else:
-        content = re.sub(r'(^\s*defaultConfig\s*\{)', r'\1\n' + id_repl, content, count=1, flags=re.MULTILINE)
-        log("Inserted applicationId in defaultConfig")
+        # Try to add applicationId to defaultConfig block
+        default_config = re.search(r'defaultConfig\s*\{', content)
+        if default_config:
+            insert_pos = default_config.end()
+            content = content[:insert_pos] + f'\n        {id_repl}\n' + content[insert_pos:]
+            log("Inserted applicationId in defaultConfig")
 
     if content != original:
         build_gradle_path.write_text(content)
         log(f"Saved changes to {build_gradle_path}")
+    else:
+        log(f"No changes needed for {build_gradle_path}")
 
 def update_manifest(manifest_path: Path, host_name: str, package_name: str):
+    """Update AndroidManifest.xml with package name and host."""
     if not manifest_path.exists():
-        log(f"Manifest not found: {manifest_path}")
+        log(f"ERROR: Manifest not found at {manifest_path}")
         return False
-    content = manifest_path.read_text()
-    content = re.sub(r'package="[^"]*"', f'package="{package_name}"', content)
-    clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
-    content = re.sub(r'android:host="[^"]*"', f'android:host="{clean_host}"', content)
-    manifest_path.write_text(content)
-    log(f"Updated manifest with package={package_name} and host={clean_host}")
-    return True
+    
+    try:
+        content = manifest_path.read_text()
+        
+        # Update package attribute
+        content = re.sub(r'package="[^"]*"', f'package="{package_name}"', content)
+        
+        # Clean the host name
+        clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
+        
+        # Update android:host attributes (for intent filters)
+        content = re.sub(r'android:host="[^"]*"', f'android:host="{clean_host}"', content)
+        
+        manifest_path.write_text(content)
+        log(f"Updated AndroidManifest.xml with package={package_name} and host={clean_host}")
+        return True
+        
+    except Exception as e:
+        log(f"ERROR updating manifest: {e}")
+        return False
 
 def main():
+    log("=" * 60)
     log("Starting Android project customization...")
+    log("=" * 60)
+    
     try:
-        build_id = read_env_or_fail('BUILD_ID')
+        # Read environment variables
+        # BUILD_ID is optional, not used in the script
+        build_id = os.getenv('BUILD_ID', 'local')
+        
+        # Required variables
         host_name = read_env_or_fail('HOST_NAME')
-        launch_url = os.getenv('LAUNCH_URL', '/')
         app_name = read_env_or_fail('APP_NAME')
+        
+        # Optional variables with defaults
+        launch_url = os.getenv('LAUNCH_URL', '/')
         launcher_name = os.getenv('LAUNCHER_NAME', app_name)
         theme_color = os.getenv('THEME_COLOR', '#171717')
         theme_color_dark = os.getenv('THEME_COLOR_DARK', '#000000')
         background_color = os.getenv('BACKGROUND_COLOR', '#FFFFFF')
 
+        log(f"Build ID: {build_id}")
+        log(f"Host: {host_name}")
+        log(f"App Name: {app_name}")
+        log(f"Launcher Name: {launcher_name}")
+        log(f"Launch URL: {launch_url}")
+
+        # Locate android project
         app_dir = Path('android-project/app')
-        if not (app_dir / 'src/main').exists():
-            log("Error: Android project not found in android-project/app")
+        if not app_dir.exists():
+            log(f"ERROR: App directory not found at {app_dir.resolve()}")
+            log("Current directory contents:")
+            for item in Path('.').iterdir():
+                log(f"  - {item}")
             return 1
-        log(f"Using app dir: {app_dir.resolve()}")
+        
+        main_dir = app_dir / 'src/main'
+        if not main_dir.exists():
+            log(f"ERROR: src/main not found at {main_dir.resolve()}")
+            return 1
+            
+        log(f"Using app directory: {app_dir.resolve()}")
 
+        # Generate package name
         package_name = generate_package_name(host_name)
+        log("=" * 60)
 
-        # Update Gradle
-        for f in ['build.gradle', 'build.gradle.kts']:
-            build_path = app_dir / f
-            update_gradle(build_path, package_name)
-
-        # Update Manifest
-        manifest_path = app_dir / 'src/main/AndroidManifest.xml'
+        # Update Gradle build files
+        log("Updating Gradle configuration...")
+        for gradle_file in ['build.gradle', 'build.gradle.kts']:
+            build_path = app_dir / gradle_file
+            if build_path.exists():
+                update_gradle(build_path, package_name)
+        
+        # Update AndroidManifest.xml
+        log("Updating AndroidManifest.xml...")
+        manifest_path = main_dir / 'AndroidManifest.xml'
         if not update_manifest(manifest_path, host_name, package_name):
-            log("Failed to update manifest")
-            return 1
+            log("WARNING: Failed to update manifest, but continuing...")
 
-        # Resources
-        res_dir = app_dir / 'src/main/res'
+        # Update resource files
+        log("Creating/updating resource files...")
+        res_dir = main_dir / 'res'
         values_dir = ensure_resources(res_dir)
+        
         create_strings_xml(values_dir, app_name, launcher_name, host_name, launch_url)
         create_colors_xml(values_dir, theme_color, theme_color_dark, background_color)
 
+        log("=" * 60)
         log("✅ Android project customization completed successfully!")
+        log("=" * 60)
         return 0
 
-    except Exception as e:
+    except ValueError as e:
+        log("=" * 60)
         log(f"❌ ERROR: {e}")
+        log("=" * 60)
+        log("\nEnvironment variables received:")
+        for key in ['BUILD_ID', 'HOST_NAME', 'LAUNCH_URL', 'APP_NAME', 'LAUNCHER_NAME', 
+                    'THEME_COLOR', 'THEME_COLOR_DARK', 'BACKGROUND_COLOR']:
+            value = os.getenv(key, '<not set>')
+            log(f"  {key}: {value}")
+        return 1
+        
+    except Exception as e:
+        log("=" * 60)
+        log(f"❌ UNEXPECTED ERROR: {e}")
+        log("=" * 60)
         traceback.print_exc()
         return 1
 
