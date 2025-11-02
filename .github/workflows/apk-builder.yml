@@ -22,45 +22,24 @@ jobs:
       run: |
         git clone https://github.com/sudo-self/template_apk.git android-project
 
-    - name: Debug - Show original files
+    - name: Simple customization - Update URL and name
       run: |
         cd android-project
-        echo "=== ORIGINAL FILES ==="
-        echo "strings.xml:"
-        cat app/src/main/res/values/strings.xml || echo "Not found"
-        echo ""
-        echo "AndroidManifest.xml:"
-        cat app/src/main/AndroidManifest.xml | head -20 || echo "Not found"
-        echo ""
-        echo "MainActivity.java key lines:"
-        grep -n "example.com" app/src/main/java/com/example/webviewapp/MainActivity.java || echo "Not found"
-
-    - name: Customize Android project
-      run: |
-        cd android-project
-        python3 ../scripts/customize-project.py
+        
+        # Update the URL in MainActivity.java
+        sed -i "s|https://example.com|$HOST_NAME|g" app/src/main/java/com/example/webviewapp/MainActivity.java
+        sed -i "s|example.com|$HOST_NAME|g" app/src/main/java/com/example/webviewapp/MainActivity.java
+        
+        # Update app name in strings.xml
+        sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|g" app/src/main/res/values/strings.xml
+        sed -i "s|<string name=\"launcher_name\">.*</string>|<string name=\"launcher_name\">$LAUNCHER_NAME</string>|g" app/src/main/res/values/strings.xml
+        
+        echo "Updated URL to: $HOST_NAME"
+        echo "Updated app name to: $APP_NAME"
       env:
-        BUILD_ID: ${{ github.event.client_payload.buildId }}
         HOST_NAME: ${{ github.event.client_payload.hostName }}
-        LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
         APP_NAME: ${{ github.event.client_payload.name }}
         LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
-        THEME_COLOR: ${{ github.event.client_payload.themeColor }}
-        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
-        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
-
-    - name: Debug - Show modified files
-      run: |
-        cd android-project
-        echo "=== MODIFIED FILES ==="
-        echo "strings.xml:"
-        cat app/src/main/res/values/strings.xml || echo "Not found"
-        echo ""
-        echo "AndroidManifest.xml:"
-        cat app/src/main/AndroidManifest.xml | head -20 || echo "Not found"
-        echo ""
-        echo "MainActivity.java key lines:"
-        grep -n "http" app/src/main/java/com/example/webviewapp/MainActivity.java || echo "Not found"
 
     - name: Build APK
       run: |
@@ -68,11 +47,17 @@ jobs:
         chmod +x gradlew
         ./gradlew assembleDebug
 
-    - name: Upload APK for testing
+    - name: Sign APK
+      run: |
+        cd android-project
+        zipalign -p 4 app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/app-signed.apk
+        apksigner sign --ks android.keystore --ks-pass pass:123321 --key-pass pass:123321 --ks-key-alias android app/build/outputs/apk/debug/app-signed.apk
+
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: test-app
-        path: android-project/app/build/outputs/apk/debug/app-debug.apk
+        name: ${{ github.event.client_payload.name }}-app
+        path: android-project/app/build/outputs/apk/debug/app-signed.apk
 
 
 
