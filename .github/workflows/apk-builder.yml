@@ -47,6 +47,9 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
     - name: Clone template project
       run: |
         git clone https://github.com/sudo-self/template_apk.git
@@ -63,13 +66,8 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: built-apk
-        path: template_apk/app/build/outputs/apk/debug/app-debug.apk
+        path: template_apk/app/build/outputs/apk/debug/app-debug-signed.apk
         retention-days: 7
-
-    - name: Show build info
-      run: |
-        echo "Build completed successfully!"
-        echo "APK is available in the artifacts section"
 
 
 
