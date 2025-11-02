@@ -33,14 +33,10 @@ jobs:
         git clone https://github.com/sudo-self/template_apk.git android-project
         cd android-project
 
-        # Locate the main JSON config file
+        # Find config file
         JSON_FILE=$(find . -name "twa-manifest.json" -type f | head -1)
-        if [ -z "$JSON_FILE" ]; then
-          JSON_FILE=$(find . -name "*.json" -type f | grep -v "build" | grep -v "package" | head -1)
-        fi
-        echo "Found JSON config at: $JSON_FILE"
 
-        # Choose icon URL
+        # Pick icon
         if [ "$ICON_CHOICE" = "castle" ]; then
           ICON_URL="https://apk.jessejesse.com/castle-512.png"
         elif [ "$ICON_CHOICE" = "smile" ]; then
@@ -49,14 +45,11 @@ jobs:
           ICON_URL="https://apk.jessejesse.com/phone-512.png"
         fi
 
-        # Backup original manifest
-        cp "$JSON_FILE" "$JSON_FILE.original"
-
-        # Compute package ID and provider authority
+        # Generate packageID + provider authority
         PACKAGE_ID="com.${HOST_NAME//./}.twa"
         PROVIDER_AUTHORITY="${PACKAGE_ID}.fileprovider"
 
-        # Update top-level TWA fields
+        # Apply JSON updates
         sed -i "s|\"host\": \"[^\"]*\"|\"host\": \"$HOST_NAME\"|g" "$JSON_FILE"
         sed -i "s|\"name\": \"[^\"]*\"|\"name\": \"$APP_NAME\"|g" "$JSON_FILE"
         sed -i "s|\"launcherName\": \"[^\"]*\"|\"launcherName\": \"$LAUNCHER_NAME\"|g" "$JSON_FILE"
@@ -66,39 +59,17 @@ jobs:
         sed -i "s|\"backgroundColor\": \"[^\"]*\"|\"backgroundColor\": \"$BACKGROUND_COLOR\"|g" "$JSON_FILE"
         sed -i "s|\"fullScopeUrl\": \"[^\"]*\"|\"fullScopeUrl\": \"https://$HOST_NAME/\"|g" "$JSON_FILE"
         sed -i "s|\"iconUrl\": \"[^\"]*\"|\"iconUrl\": \"$ICON_URL\"|g" "$JSON_FILE"
-
-        # Update nested manifest fields
-        sed -i "s|\"short_name\": \"[^\"]*\"|\"short_name\": \"$APP_NAME\"|g" "$JSON_FILE"
-        sed -i "s|\"name\": \"[^\"]*\",|\"name\": \"$APP_NAME\",|g" "$JSON_FILE"
-
-        # Update package ID
         sed -i "s|\"packageId\": \"[^\"]*\"|\"packageId\": \"$PACKAGE_ID\"|g" "$JSON_FILE"
 
-        # Calculate new checksum
-        NEW_CHECKSUM=$(sha1sum "$JSON_FILE" | cut -d' ' -f1)
-        echo "New manifest checksum: $NEW_CHECKSUM"
+        # Also patch strings.xml
+        STRINGS="app/src/main/res/values/strings.xml"
+        sed -i "s|<string name=\"hostName\">[^<]*</string>|<string name=\"hostName\">$HOST_NAME</string>|g" "$STRINGS"
+        sed -i "s|<string name=\"launchUrl\">[^<]*</string>|<string name=\"launchUrl\">https://$HOST_NAME$LAUNCH_URL</string>|g" "$STRINGS"
+        sed -i "s|<string name=\"appName\">[^<]*</string>|<string name=\"appName\">$APP_NAME</string>|g" "$STRINGS"
+        sed -i "s|<string name=\"launcherName\">[^<]*</string>|<string name=\"launcherName\">$LAUNCHER_NAME</string>|g" "$STRINGS"
+        sed -i "s|<string name=\"providerAuthority\">[^<]*</string>|<string name=\"providerAuthority\">$PROVIDER_AUTHORITY</string>|g" "$STRINGS"
 
-        # Update manifest-checksum.txt
-        MANIFEST_CHECKSUM_FILE=$(find . -name "manifest-checksum.txt" -type f | head -1)
-        if [ -n "$MANIFEST_CHECKSUM_FILE" ]; then
-          echo "$NEW_CHECKSUM" > "$MANIFEST_CHECKSUM_FILE"
-          echo "Updated manifest-checksum.txt with: $NEW_CHECKSUM"
-        else
-          echo "WARNING: manifest-checksum.txt not found!"
-        fi
-
-        # Update strings.xml
-        STRINGS_FILE="app/src/main/res/values/strings.xml"
-        sed -i "s|<string name=\"hostName\">[^<]*</string>|<string name=\"hostName\">$HOST_NAME</string>|g" "$STRINGS_FILE"
-        sed -i "s|<string name=\"launchUrl\">[^<]*</string>|<string name=\"launchUrl\">https://$HOST_NAME$LAUNCH_URL</string>|g" "$STRINGS_FILE"
-        sed -i "s|<string name=\"appName\">[^<]*</string>|<string name=\"appName\">$APP_NAME</string>|g" "$STRINGS_FILE"
-        sed -i "s|<string name=\"launcherName\">[^<]*</string>|<string name=\"launcherName\">$LAUNCHER_NAME</string>|g" "$STRINGS_FILE"
-        sed -i "s|<string name=\"providerAuthority\">[^<]*</string>|<string name=\"providerAuthority\">$PROVIDER_AUTHORITY</string>|g" "$STRINGS_FILE"
-
-        echo "Updated JSON and strings.xml:"
-        cat "$JSON_FILE" | grep -E "(host|name|launcherName|startUrl|themeColor|iconUrl)"
-        echo "Using icon: $ICON_URL"
-        echo "Provider Authority: $PROVIDER_AUTHORITY"
+        echo "JSON + strings.xml updated"
 
       env:
         HOST_NAME: ${{ github.event.client_payload.hostName }}
@@ -114,6 +85,11 @@ jobs:
       run: |
         cd android-project
         chmod +x gradlew
+        
+        # ✅ REQUIRED — force regeneration so it does NOT use example config
+        ./gradlew updateManifest
+
+        # Build debug APK
         ./gradlew assembleDebug
 
     - name: Upload APK
@@ -121,6 +97,7 @@ jobs:
       with:
         name: ${{ github.event.client_payload.name }}-app
         path: android-project/app/build/outputs/apk/debug/app-debug.apk
+
 
 
 
