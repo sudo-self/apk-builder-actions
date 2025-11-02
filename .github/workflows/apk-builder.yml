@@ -9,53 +9,121 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-    - name: Setup JDK
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Cache Gradle packages
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.gradle/caches
-          ~/.gradle/wrapper
-        key: gradle-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
-        restore-keys: |
-          gradle-
-    - name: Clone Android template
-      run: git clone https://github.com/sudo-self/template_apk.git android-project
+      - name: Cache Gradle packages
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
 
-    - name: Customize Android project
-      run: |
-        python3 scripts/customize-project.py
-      env:
-        BUILD_ID: ${{ github.run_id }}
-        HOST_NAME: ${{ github.event.client_payload.hostName }}
-        LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
-        APP_NAME: ${{ github.event.client_payload.name }}
-        LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
-        THEME_COLOR: ${{ github.event.client_payload.themeColor }}
-        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
-        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
+      - name: Clone Android template
+        run: git clone https://github.com/sudo-self/template_apk.git android-project
 
-    - name: Build APK
-      run: |
-        cd android-project
-        chmod +x gradlew
-        ./gradlew assembleDebug
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ github.event.client_payload.name }}-app
-        path: android-project/app/build/outputs/apk/debug/app-debug.apk
+      - name: Decode keystore
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > android-project/my-release-key.jks
+          if [ ! -f android-project/my-release-key.jks ]; then
+            echo "Keystore file not created"
+            exit 1
+          fi
+          echo "Keystore decoded successfully"
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+      - name: Create keystore properties
+        run: |
+          cd android-project
+          cat > keystore.properties << EOF
+storeFile=my-release-key.jks
+storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+keyAlias=${{ secrets.KEY_ALIAS }}
+keyPassword=${{ secrets.KEY_PASSWORD }}
+EOF
+          echo "Keystore properties created"
+
+      - name: Customize Android project
+        run: |
+          python3 scripts/customize-project.py
+        env:
+          BUILD_ID: ${{ github.run_id }}
+          HOST_NAME: ${{ github.event.client_payload.hostName }}
+          LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
+          APP_NAME: ${{ github.event.client_payload.name }}
+          LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
+          THEME_COLOR: ${{ github.event.client_payload.themeColor }}
+          THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
+          BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
+
+      - name: Build Release APK
+        run: |
+          cd android-project
+          chmod +x gradlew
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Find and rename APK
+        run: |
+          APK_FILE=$(find android-project/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
+          
+          if [ -z "$APK_FILE" ]; then
+            echo "No APK file found"
+            find android-project -name "*.apk" -type f
+            exit 1
+          fi
+          
+          CLEAN_NAME=$(echo "${{ github.event.client_payload.name }}" | sed 's/[^a-zA-Z0-9._-]/_/g')
+          OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
+          
+          cp "$APK_FILE" "./$OUTPUT_NAME"
+          echo "APK created: $OUTPUT_NAME"
+          echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
+
+      - name: Verify APK signature
+        run: |
+          # Use jarsigner for reliable signature verification
+          jarsigner -verify -verbose -certs "./${{ env.apk_name }}"
+          echo "APK signature verified"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.client_payload.name }}-app
+          path: ./${{ env.apk_name }}
+          retention-days: 30
+
+      - name: Create Release (optional)
+        if: github.event.client_payload.createRelease == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: ${{ github.event.client_payload.name }} v1.0.${{ github.run_number }}
+          body: |
+            ## ${{ github.event.client_payload.name }}
+
+            **Build:** #${{ github.run_number }}
+            **Host:** ${{ github.event.client_payload.hostName }}
+            **Launch URL:** ${{ github.event.client_payload.launchUrl }}
+
+            Download and install the APK below.
+          files: ./${{ env.apk_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
