@@ -23,20 +23,48 @@ jobs:
         git clone https://github.com/sudo-self/template_apk.git android-project
         cd android-project
         
-        # Update all the URLs and names in strings.xml
+        # Find and update the JSON config file
+        JSON_FILE=$(find . -name "*.json" -type f | grep -v "build" | head -1)
+        echo "Found JSON config at: $JSON_FILE"
+        
+        # Set icon URL based on choice or use default
+        if [ "$ICON_CHOICE" = "alternative" ]; then
+          ICON_URL="https://bucket.jessejesse.com/MaterialSymbolsAndroid.png"
+        elif [ "$ICON_CHOICE" = "modern" ]; then
+          ICON_URL="https://bucket.jessejesse.com/MaterialSymbolsAndroid.png"
+        else
+          ICON_URL="https://bucket.jessejesse.com/MaterialSymbolsAndroid.png"
+        fi
+        
+        # Update the JSON file with all custom values
+        sed -i "s|\"host\": \"[^\"]*\"|\"host\": \"$HOST_NAME\"|g" "$JSON_FILE"
+        sed -i "s|\"name\": \"[^\"]*\"|\"name\": \"$APP_NAME\"|g" "$JSON_FILE"
+        sed -i "s|\"launcherName\": \"[^\"]*\"|\"launcherName\": \"$LAUNCHER_NAME\"|g" "$JSON_FILE"
+        sed -i "s|\"startUrl\": \"[^\"]*\"|\"startUrl\": \"$LAUNCH_URL\"|g" "$JSON_FILE"
+        sed -i "s|\"themeColor\": \"[^\"]*\"|\"themeColor\": \"$THEME_COLOR\"|g" "$JSON_FILE"
+        sed -i "s|\"themeColorDark\": \"[^\"]*\"|\"themeColorDark\": \"$THEME_COLOR_DARK\"|g" "$JSON_FILE"
+        sed -i "s|\"backgroundColor\": \"[^\"]*\"|\"backgroundColor\": \"$BACKGROUND_COLOR\"|g" "$JSON_FILE"
+        sed -i "s|\"fullScopeUrl\": \"[^\"]*\"|\"fullScopeUrl\": \"https://$HOST_NAME/\"|g" "$JSON_FILE"
+        sed -i "s|\"iconUrl\": \"[^\"]*\"|\"iconUrl\": \"$ICON_URL\"|g" "$JSON_FILE"
+        
+        # Also update strings.xml as backup
         sed -i "s|<string name=\"hostName\">[^<]*</string>|<string name=\"hostName\">$HOST_NAME</string>|g" app/src/main/res/values/strings.xml
         sed -i "s|<string name=\"launchUrl\">[^<]*</string>|<string name=\"launchUrl\">https://$HOST_NAME$LAUNCH_URL</string>|g" app/src/main/res/values/strings.xml
         sed -i "s|<string name=\"appName\">[^<]*</string>|<string name=\"appName\">$APP_NAME</string>|g" app/src/main/res/values/strings.xml
         sed -i "s|<string name=\"launcherName\">[^<]*</string>|<string name=\"launcherName\">$LAUNCHER_NAME</string>|g" app/src/main/res/values/strings.xml
         
-        echo "Updated hostName to: $HOST_NAME"
-        echo "Updated launchUrl to: https://$HOST_NAME$LAUNCH_URL"
-        echo "Updated app name to: $APP_NAME"
+        echo "Updated JSON config:"
+        cat "$JSON_FILE" | grep -E "(host|name|launcherName|startUrl|themeColor|iconUrl)"
+        echo "Using icon: $ICON_URL"
       env:
         HOST_NAME: ${{ github.event.client_payload.hostName }}
         LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
         APP_NAME: ${{ github.event.client_payload.name }}
         LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
+        THEME_COLOR: ${{ github.event.client_payload.themeColor }}
+        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
+        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
+        ICON_CHOICE: ${{ github.event.client_payload.iconChoice }}
 
     - name: Build APK
       run: |
@@ -44,7 +72,7 @@ jobs:
         chmod +x gradlew
         ./gradlew assembleDebug
 
-    - name: Upload debug APK
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: ${{ github.event.client_payload.name }}-app
