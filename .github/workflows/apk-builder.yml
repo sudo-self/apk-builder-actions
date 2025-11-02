@@ -89,7 +89,7 @@ EOF
         run: |
           cd android-project/app
           if ! grep -q "signingConfigs" build.gradle*; then
-            cat >> build.gradle <<'EOF'
+            cat >> build.gradle << 'EOF'
 android {
     signingConfigs {
         release {
@@ -134,7 +134,6 @@ EOF
 
       - name: Verify APK signature
         run: |
-          # Use jarsigner for reliable signature verification
           jarsigner -verify -verbose -certs "./${{ env.apk_name }}"
           echo "APK signature verified"
 
@@ -164,26 +163,3 @@ EOF
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
