@@ -74,7 +74,6 @@ def update_gradle(build_gradle_path: Path, package_name: str):
     original = content
     is_kts = build_gradle_path.suffix == '.kts'
 
-    # Patterns
     ns_pat = r'namespace\s*[:=]\s*["\'].*?["\']'
     id_pat = r'applicationId\s*[:=]?\s*["\'].*?["\']'
     ns_repl = f'namespace = "{package_name}"' if is_kts else f'    namespace "{package_name}"'
@@ -121,19 +120,16 @@ def main():
         theme_color_dark = os.getenv('THEME_COLOR_DARK', '#000000')
         background_color = os.getenv('BACKGROUND_COLOR', '#FFFFFF')
 
-        # --- FIXED app_dir detection ---
+        # --- FIXED: detect app module correctly ---
         possible_dirs = [
-            Path('android-project/app'),  # cloned workflow location
-            Path('android-project'),
-            Path('app'),                  # local dev
-            Path('.')                     # fallback
+            Path('app'),
+            Path('.')
         ]
         app_dir = None
         for possible in possible_dirs:
             if (possible / 'src' / 'main').exists():
                 app_dir = possible
                 break
-
         if not app_dir:
             log("Error: Could not find Android project")
             return 1
@@ -165,4 +161,5 @@ def main():
 
 if __name__ == '__main__':
     exit(main())
+
 
