@@ -175,8 +175,8 @@ GRADLE_EOF
 
       - name: Verify APK signature
         run: |
-          # Use jarsigner for reliable signature verification
-          jarsigner -verify -verbose -certs "./${{ env.apk_name }}"
+          # Use the correct apksigner syntax for newer Android build tools
+          $ANDROID_HOME/build-tools/*/apksigner verify --print-certs "./${{ env.apk_name }}"
           echo "APK signature verified"
 
       - name: Upload APK
