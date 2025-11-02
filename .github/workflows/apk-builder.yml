@@ -1,5 +1,4 @@
 name: APK Builder
-
 on:
   repository_dispatch:
     types: [apk_build]
@@ -7,40 +6,51 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
     - name: Setup Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
-
+        
     - name: Setup JDK
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
-
+        
+    - name: Clone Android template
+      run: git clone https://github.com/sudo-self/template_apk.git android-project
+      
     - name: Cache Gradle packages
       uses: actions/cache@v3
       with:
         path: |
           ~/.gradle/caches
           ~/.gradle/wrapper
-        key: gradle-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
+        key: gradle-${{ runner.os }}-${{ hashFiles('android-project/**/gradle-wrapper.properties') }}
         restore-keys: |
-          gradle-
-
-    - name: Clone Android template
-      run: git clone https://github.com/sudo-self/template_apk.git android-project
-
+          gradle-${{ runner.os }}-
+          
     - name: Decode keystore
-      run: echo $KEYSTORE_BASE64 | base64 --decode > android-project/my-release-key.jks
+      run: echo "$KEYSTORE_BASE64" | base64 --decode > android-project/my-release-key.jks
       env:
         KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-
+        
+    - name: Verify keystore
+      run: |
+        if [ ! -f android-project/my-release-key.jks ]; then
+          echo "Keystore file not created"
+          exit 1
+        fi
+        
     - name: Customize Android project
       run: python3 scripts/customize-project.py
       env:
@@ -55,32 +65,43 @@ jobs:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-
+        
     - name: Install Bubblewrap
       run: npm install -g @bubblewrap/cli
-
+      
+    - name: Make Gradlew Executable
+      run: chmod +x android-project/gradlew
+      
     - name: Build APK with Bubblewrap
+      working-directory: android-project
       run: |
-        cd android-project
         bubblewrap build \
-          --manifest="/" \
-          --package="${{ github.event.client_payload.name | toLowerCase }}" \
+          --manifest="${{ github.event.client_payload.manifestUrl || github.event.client_payload.launchUrl }}/manifest.json" \
           --name="${{ github.event.client_payload.name }}" \
           --keystore=./my-release-key.jks \
-          --keystore-password=$KEYSTORE_PASSWORD \
-          --key-alias=$KEY_ALIAS \
-          --key-password=$KEY_PASSWORD \
-          --output=../${{ github.event.client_payload.name }}.apk
+          --keystore-password="$KEYSTORE_PASSWORD" \
+          --key-alias="$KEY_ALIAS" \
+          --key-password="$KEY_PASSWORD"
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-
+        
+    - name: Find and rename APK
+      run: |
+        APK_FILE=$(find android-project -name "*.apk" -type f | head -n 1)
+        if [ -z "$APK_FILE" ]; then
+          echo "No APK file found"
+          exit 1
+        fi
+        mv "$APK_FILE" "./${{ github.event.client_payload.name }}.apk"
+        
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: ${{ github.event.client_payload.name }}-app
         path: ./${{ github.event.client_payload.name }}.apk
+        retention-days: 30
 
 
 
