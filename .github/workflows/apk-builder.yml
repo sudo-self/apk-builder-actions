@@ -9,69 +9,90 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      # Checkout repo
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Setup Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+      #  Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
-    - name: Setup JDK
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      #  Setup JDK
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-    - name: Install Bubblewrap
-      run: npm install -g @bubblewrap/cli
+      #  Cache Gradle
+      - name: Cache Gradle packages
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
 
-    - name: Clone Android template
-      run: git clone https://github.com/sudo-self/template_apk.git android-project
+      # Install Bubblewrap
+      - name: Install Bubblewrap
+        run: npm install -g @bubblewrap/cli
 
-    - name: Decode keystore
-      run: |
-        echo $KEYSTORE_BASE64 | base64 --decode > android-project/my-release-key.jks
-      env:
-        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      # Clone Android template
+      - name: Clone Android template
+        run: git clone https://github.com/sudo-self/template_apk.git android-project
 
-    - name: Customize Android project
-      run: python3 ../scripts/customize-project.py
-      env:
-        BUILD_ID: ${{ github.run_number }}
-        HOST_NAME: ${{ github.event.client_payload.hostName }}
-        LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
-        APP_NAME: ${{ github.event.client_payload.name }}
-        LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
-        THEME_COLOR: ${{ github.event.client_payload.themeColor }}
-        THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
-        BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      #  Decode keystore
+      - name: Decode keystore
+        run: |
+          echo "${KEYSTORE_BASE64}" | base64 --decode > android-project/my-release-key.jks
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-    - name: Build APK with Bubblewrap
-      run: |
-        cd android-project
-        bubblewrap build \
-          --manifest="/" \
-          --package="${{ github.event.client_payload.package }}" \
-          --name="${{ github.event.client_payload.name }}" \
-          --keystore=./my-release-key.jks \
-          --keystore-password=$KEYSTORE_PASSWORD \
-          --key-alias=$KEY_ALIAS \
-          --key-password=$KEY_PASSWORD \
-          --output=../${{ github.event.client_payload.name }}.apk
-      env:
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      # Customize Android project
+      - name: Customize Android project
+        run: python3 ../scripts/customize-project.py
+        working-directory: android-project
+        env:
+          BUILD_ID: ${{ github.run_id }}
+          HOST_NAME: ${{ github.event.client_payload.hostName }}
+          LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
+          APP_NAME: ${{ github.event.client_payload.name }}
+          LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
+          THEME_COLOR: ${{ github.event.client_payload.themeColor }}
+          THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
+          BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ github.event.client_payload.name }}-app
-        path: ./${{ github.event.client_payload.name }}.apk
+      # Build APK using Bubblewrap
+      - name: Build APK
+        run: |
+          cd android-project
+          bubblewrap build \
+            --manifest="/" \
+            --package="${{ github.event.client_payload.name }}" \
+            --name="${{ github.event.client_payload.name }}" \
+            --keystore=./my-release-key.jks \
+            --keystore-password="${{ secrets.KEYSTORE_PASSWORD }}" \
+            --key-alias="${{ secrets.KEY_ALIAS }}" \
+            --key-password="${{ secrets.KEY_PASSWORD }}" \
+            --output=../${{ github.event.client_payload.name }}.apk
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+          PATH: ${{ env.PATH }}
+
+      # Upload APK artifact
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.client_payload.name }}-app
+          path: ./${{ github.event.client_payload.name }}.apk
+
 
 
 
