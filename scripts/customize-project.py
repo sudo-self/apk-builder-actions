@@ -158,12 +158,13 @@ def update_manifest_remove_package(manifest_path: Path):
 
 def create_asset_links(values_dir: Path, host_name: str, package_name: str):
     """Create assetlinks.xml for Digital Asset Links verification."""
+    values_dir.mkdir(parents=True, exist_ok=True)
     path = values_dir / 'assetlinks.xml'
     
     clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0].split('?')[0]
     
-
-    sha256_fingerprint = "51:9C:6C:9B:D9:3B:86:34:67:63:39:22:C9:50:87:DF:49:53:78:5F:84:68:2E:F1:8F:6A:4F:5F:56:B2:73:D8"
+    # UPDATE THIS LINE with your actual SHA256 fingerprint
+    sha256_fingerprint = "A0:2C:AA:A7:1A:5D:AD:43:47:FD:BF:08:DB:97:30:30:6A:3C:EB:AC:11:C8:E2:3F:9A:5E:10:15:BE:0D:19:CC"
     
     content = f'''<?xml version="1.0" encoding="utf-8"?>
 <resources>
@@ -178,7 +179,7 @@ def create_asset_links(values_dir: Path, host_name: str, package_name: str):
     
     path.write_text(content, encoding='utf-8')
     log(f"Created assetlinks.xml at {path}")
-
+    
 def main():
     log("=" * 60)
     log("Starting Android project customization...")
