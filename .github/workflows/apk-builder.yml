@@ -9,52 +9,60 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      # 1. Checkout repository (this workflow repo)
+      - name: Checkout workflow repo
         uses: actions/checkout@v4
 
+      # 2. Setup Python
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
+      # 3. Setup JDK
       - name: Setup JDK
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
+      # 4. Cache Gradle
       - name: Cache Gradle packages
         uses: actions/cache@v3
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/gradle-wrapper.properties') }}
           restore-keys: |
-            gradle-
+            gradle-${{ runner.os }}-
 
+      # 5. Clone Android template (template_apk repo contains the secrets)
       - name: Clone Android template
-        run: git clone https://github.com/sudo-self/template_apk.git android-project
+        uses: actions/checkout@v4
+        with:
+          repository: sudo-self/template_apk
+          path: android-project
 
-      - name: Debug - Check template before customization
-        run: |
-          echo "=== TEMPLATE build.gradle BEFORE customization ==="
-          cat android-project/app/build.gradle | head -50
-          echo ""
-          echo "=== TEMPLATE AndroidManifest.xml BEFORE customization ==="
-          cat android-project/app/src/main/AndroidManifest.xml | head -20
-
+      # 6. Decode keystore from template repo secrets
       - name: Decode keystore
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > android-project/android.keystore
-          if [ ! -f android-project/android.keystore ]; then
-            echo "Keystore file not created"
-            exit 1
-          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > android-project/my-release-key.jks
           echo "Keystore decoded successfully"
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
+      # 7. Verify required payload variables
+      - name: Verify client payload
+        run: |
+          for var in hostName name; do
+            if [ -z "${{ github.event.client_payload.$var }}" ]; then
+              echo "ERROR: $var is required"
+              exit 1
+            fi
+          done
+
+      # 8. Run customization script
       - name: Customize Android project
         run: python3 scripts/customize-project.py
         env:
@@ -67,51 +75,70 @@ jobs:
           THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
           BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
 
-      - name: Debug - Check template after customization
+      # 9. Setup signing config
+      - name: Setup signing
         run: |
-          echo "=== TEMPLATE build.gradle AFTER customization ==="
-          cat android-project/app/build.gradle | head -50
-          echo ""
-          echo "=== Check if values were updated ==="
-          grep -n "applicationId\|hostName\|namespace" android-project/app/build.gradle
-          echo ""
-          echo "=== Check AndroidManifest.xml ==="
-          cat android-project/app/src/main/AndroidManifest.xml | head -20
+          cd android-project/app
+          cat >> gradle.properties <<EOF
+RELEASE_STORE_FILE=../my-release-key.jks
+RELEASE_STORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}
+RELEASE_KEY_ALIAS=${{ secrets.KEY_ALIAS }}
+RELEASE_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}
+EOF
 
+      # 10. Add signing block to build.gradle if missing
+      - name: Update build.gradle for signing
+        run: |
+          cd android-project/app
+          if ! grep -q "signingConfigs" build.gradle; then
+            cat >> build.gradle <<'EOF'
+android {
+    signingConfigs {
+        release {
+            storeFile file(RELEASE_STORE_FILE)
+            storePassword RELEASE_STORE_PASSWORD
+            keyAlias RELEASE_KEY_ALIAS
+            keyPassword RELEASE_KEY_PASSWORD
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
+    }
+}
+EOF
+
+      # 11. Make Gradlew executable
+      - name: Make Gradlew executable
+        run: chmod +x android-project/gradlew
+
+      # 12. Build release APK
       - name: Build Release APK
         run: |
           cd android-project
-          chmod +x gradlew
-          ./gradlew clean assembleRelease --stacktrace --no-daemon
+          ./gradlew assembleRelease --stacktrace
 
+      # 13. Find APK and rename
       - name: Find and rename APK
         run: |
           APK_FILE=$(find android-project/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
-          
           if [ -z "$APK_FILE" ]; then
-            echo "No APK file found in release folder, searching everywhere..."
-            find android-project -name "*.apk" -type f
+            echo "No APK file found"
             exit 1
           fi
-          
           CLEAN_NAME=$(echo "${{ github.event.client_payload.name }}" | sed 's/[^a-zA-Z0-9._-]/_/g')
           OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
-          
           cp "$APK_FILE" "./$OUTPUT_NAME"
-          APK_SIZE=$(ls -lh "$OUTPUT_NAME" | awk '{print $5}')
-          echo "APK created: $OUTPUT_NAME ($APK_SIZE)"
           echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
 
+      # 14. Verify APK signature
       - name: Verify APK signature
         run: |
-          if [ -f "./${{ env.apk_name }}" ]; then
-            jarsigner -verify -verbose -certs "./${{ env.apk_name }}"
-            echo "APK signature verified"
-          else
-            echo "APK file not found for verification"
-            exit 1
-          fi
+          APK_SIGNER="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)/apksigner"
+          $APK_SIGNER verify --verbose --print-certs "./${{ env.apk_name }}"
 
+      # 15. Upload artifact
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -119,7 +146,8 @@ jobs:
           path: ./${{ env.apk_name }}
           retention-days: 30
 
-      - name: Create Release (optional)
+      # 16. Optional GitHub release
+      - name: Create Release
         if: github.event.client_payload.createRelease == 'true'
         uses: softprops/action-gh-release@v1
         with:
@@ -127,15 +155,12 @@ jobs:
           name: ${{ github.event.client_payload.name }} v1.0.${{ github.run_number }}
           body: |
             ## ${{ github.event.client_payload.name }}
-
             **Build:** #${{ github.run_number }}
             **Host:** ${{ github.event.client_payload.hostName }}
             **Launch URL:** ${{ github.event.client_payload.launchUrl }}
-
             Download and install the APK below.
           files: ./${{ env.apk_name }}
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
