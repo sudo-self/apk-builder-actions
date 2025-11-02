@@ -47,20 +47,13 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-      - name: Create keystore properties
+      - name: Copy keystore properties
         run: |
-          cd android-project
-          cat > keystore.properties << EOF
-storeFile=my-release-key.jks
-storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-keyAlias=${{ secrets.KEY_ALIAS }}
-keyPassword=${{ secrets.KEY_PASSWORD }}
-EOF
-          echo "Keystore properties created"
+          cp keystore.properties android-project/keystore.properties
+          echo "Keystore properties copied to project"
 
       - name: Customize Android project
-        run: |
-          python3 scripts/customize-project.py
+        run: python3 scripts/customize-project.py
         env:
           BUILD_ID: ${{ github.run_id }}
           HOST_NAME: ${{ github.event.client_payload.hostName }}
@@ -96,7 +89,6 @@ EOF
 
       - name: Verify APK signature
         run: |
-          # Use jarsigner for reliable signature verification
           jarsigner -verify -verbose -certs "./${{ env.apk_name }}"
           echo "APK signature verified"
 
