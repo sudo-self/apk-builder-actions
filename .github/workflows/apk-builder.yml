@@ -47,10 +47,23 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-      - name: Copy keystore properties
+      - name: Create keystore properties
         run: |
-          cp keystore.properties android-project/keystore.properties
-          echo "Keystore properties copied to project"
+          cd android-project
+          cat > keystore.properties << EOF
+storeFile=android.keystore
+storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+keyAlias=${{ secrets.KEY_ALIAS }}
+keyPassword=${{ secrets.KEY_PASSWORD }}
+EOF
+          echo "Keystore properties created"
+
+      - name: Validate keystore setup
+        run: |
+          echo "Checking keystore files..."
+          ls -la android-project/android.keystore || echo "Keystore file missing"
+          ls -la android-project/keystore.properties || echo "Keystore properties missing"
+          echo "Keystore setup validated"
 
       - name: Customize Android project
         run: python3 scripts/customize-project.py
@@ -64,18 +77,25 @@ jobs:
           THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
           BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
 
+      - name: Validate Gradle configuration
+        run: |
+          cd android-project
+          chmod +x gradlew
+          ./gradlew tasks --dry-run
+          echo "Gradle configuration is valid"
+
       - name: Build Release APK
         run: |
           cd android-project
           chmod +x gradlew
-          ./gradlew assembleRelease --stacktrace
+          ./gradlew clean assembleRelease --stacktrace --no-daemon
 
       - name: Find and rename APK
         run: |
           APK_FILE=$(find android-project/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
           
           if [ -z "$APK_FILE" ]; then
-            echo "No APK file found"
+            echo "No APK file found in release folder, searching everywhere..."
             find android-project -name "*.apk" -type f
             exit 1
           fi
@@ -84,13 +104,19 @@ jobs:
           OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
           
           cp "$APK_FILE" "./$OUTPUT_NAME"
-          echo "APK created: $OUTPUT_NAME"
+          APK_SIZE=$(ls -lh "$OUTPUT_NAME" | awk '{print $5}')
+          echo "APK created: $OUTPUT_NAME ($APK_SIZE)"
           echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
 
       - name: Verify APK signature
         run: |
-          jarsigner -verify -verbose -certs "./${{ env.apk_name }}"
-          echo "APK signature verified"
+          if [ -f "./${{ env.apk_name }}" ]; then
+            jarsigner -verify -verbose -certs "./${{ env.apk_name }}"
+            echo "APK signature verified"
+          else
+            echo "APK file not found for verification"
+            exit 1
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
