@@ -48,29 +48,23 @@ def generate_package_name(host_name):
     return final_package
 
 def ensure_resources_directory(res_dir):
-    """Ensure the resources directory exists"""
     res_dir.mkdir(parents=True, exist_ok=True)
     values_dir = res_dir / 'values'
     values_dir.mkdir(exist_ok=True)
     return values_dir
 
 def create_strings_xml(values_dir, app_name, launcher_name, host_name, launch_url):
-    """Create or update strings.xml"""
     strings_path = values_dir / 'strings.xml'
     
     if strings_path.exists():
-        # Update existing file
         tree = ET.parse(strings_path)
         root = tree.getroot()
-        
-        # Update or add strings
         strings_map = {
-            'app_name': app_name,
-            'launcher_name': launcher_name,
+            'appName': app_name,
+            'launcherName': launcher_name,
             'hostName': host_name,
             'launchUrl': launch_url or '/'
         }
-        
         for name, value in strings_map.items():
             existing = root.find(f"./string[@name='{name}']")
             if existing is not None:
@@ -79,15 +73,12 @@ def create_strings_xml(values_dir, app_name, launcher_name, host_name, launch_ur
                 new_elem = ET.Element('string', {'name': name})
                 new_elem.text = value
                 root.append(new_elem)
-        
-        # Write back with proper formatting
         tree.write(strings_path, encoding='utf-8', xml_declaration=True)
     else:
-        # Create new strings.xml
         content = f'''<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">{app_name}</string>
-    <string name="launcher_name">{launcher_name}</string>
+    <string name="appName">{app_name}</string>
+    <string name="launcherName">{launcher_name}</string>
     <string name="hostName">{host_name}</string>
     <string name="launchUrl">{launch_url or '/'}</string>
 </resources>'''
@@ -96,19 +87,15 @@ def create_strings_xml(values_dir, app_name, launcher_name, host_name, launch_ur
     log(f"Updated strings.xml at {strings_path}")
 
 def create_colors_xml(values_dir, theme_color, theme_color_dark, background_color):
-    """Create or update colors.xml"""
     colors_path = values_dir / 'colors.xml'
-    
     if colors_path.exists():
         tree = ET.parse(colors_path)
         root = tree.getroot()
-        
         colors_map = {
             'colorPrimary': theme_color,
             'colorPrimaryDark': theme_color_dark,
             'backgroundColor': background_color
         }
-        
         for name, value in colors_map.items():
             existing = root.find(f"./color[@name='{name}']")
             if existing is not None:
@@ -117,7 +104,6 @@ def create_colors_xml(values_dir, theme_color, theme_color_dark, background_colo
                 new_elem = ET.Element('color', {'name': name})
                 new_elem.text = value
                 root.append(new_elem)
-        
         tree.write(colors_path, encoding='utf-8', xml_declaration=True)
     else:
         content = f'''<?xml version="1.0" encoding="utf-8"?>
@@ -127,71 +113,42 @@ def create_colors_xml(values_dir, theme_color, theme_color_dark, background_colo
     <color name="backgroundColor">{background_color}</color>
 </resources>'''
         colors_path.write_text(content, encoding='utf-8')
-    
     log(f"Updated colors.xml at {colors_path}")
 
 def ensure_gradle_namespace_and_appid(build_gradle_path: Path, package_name: str):
-    """Ensure namespace and applicationId exist and match the package_name"""
     if not build_gradle_path.exists():
         log(f"Warning: {build_gradle_path} not found")
         return
 
     content = build_gradle_path.read_text()
     original = content
-
-    # Check if it's Kotlin DSL (.kts) or Groovy
     is_kotlin_dsl = build_gradle_path.suffix == '.kts'
-    
     if is_kotlin_dsl:
-        # Kotlin DSL updates
         namespace_pattern = r'^\s*namespace\s*=\s*["\'].*?["\']'
         application_id_pattern = r'^\s*applicationId\s*=\s*["\'].*?["\']'
         namespace_replacement = f'namespace = "{package_name}"'
         application_id_replacement = f'applicationId = "{package_name}"'
     else:
-        # Groovy DSL updates
         namespace_pattern = r'^\s*namespace\s+["\'].*?["\']'
         application_id_pattern = r'applicationId\s+["\'].*?["\']'
         namespace_replacement = f'    namespace "{package_name}"'
         application_id_replacement = f'applicationId "{package_name}"'
 
-    # Update namespace
     if re.search(namespace_pattern, content, flags=re.MULTILINE):
         content = re.sub(namespace_pattern, namespace_replacement, content, flags=re.MULTILINE)
         log("Replaced existing namespace")
-    else:
-        # Insert namespace after android {
-        if re.search(r'^\s*android\s*\{', content, flags=re.MULTILINE):
-            indent = '    ' if not is_kotlin_dsl else '    '
-            content = re.sub(
-                r'(^\s*android\s*\{)',
-                r'\1\n' + indent + namespace_replacement,
-                content,
-                count=1,
-                flags=re.MULTILINE
-            )
-            log("Inserted namespace into android block")
-        else:
-            log("Warning: Could not find android block for namespace")
+    elif re.search(r'^\s*android\s*\{', content, flags=re.MULTILINE):
+        indent = '    ' if not is_kotlin_dsl else '    '
+        content = re.sub(r'(^\s*android\s*\{)', r'\1\n' + indent + namespace_replacement, content, count=1, flags=re.MULTILINE)
+        log("Inserted namespace into android block")
 
-    # Update applicationId
     if re.search(application_id_pattern, content, flags=re.MULTILINE):
         content = re.sub(application_id_pattern, application_id_replacement, content, flags=re.MULTILINE)
         log("Replaced existing applicationId")
-    else:
-        # Insert into defaultConfig
-        if re.search(r'^\s*defaultConfig\s*\{', content, flags=re.MULTILINE):
-            indent = '        ' if not is_kotlin_dsl else '        '
-            content = re.sub(
-                r'(^\s*defaultConfig\s*\{)',
-                r'\1\n' + indent + application_id_replacement,
-                content,
-                count=1,
-                flags=re.MULTILINE
-            )
-            log("Inserted applicationId into defaultConfig")
-        else:
-            log("Warning: Could not find defaultConfig block for applicationId")
+    elif re.search(r'^\s*defaultConfig\s*\{', content, flags=re.MULTILINE):
+        indent = '        ' if not is_kotlin_dsl else '        '
+        content = re.sub(r'(^\s*defaultConfig\s*\{)', r'\1\n' + indent + application_id_replacement, content, count=1, flags=re.MULTILINE)
+        log("Inserted applicationId into defaultConfig")
 
     if content != original:
         build_gradle_path.write_text(content)
@@ -200,55 +157,32 @@ def ensure_gradle_namespace_and_appid(build_gradle_path: Path, package_name: str
         log(f"No changes required for {build_gradle_path}")
 
 def ensure_manifest_package(manifest_path: Path, package_name: str):
-    """Ensure AndroidManifest.xml has correct package attribute"""
     if not manifest_path.exists():
         log(f"Error: {manifest_path} not found - this is required!")
         return False
-
     content = manifest_path.read_text()
     original = content
-
-    # Update package attribute
     if re.search(r'<manifest[^>]*\bpackage\s*=\s*["\'][^"\']*["\']', content):
-        content = re.sub(
-            r'(<manifest[^>]*\b)package\s*=\s*["\'][^"\']*["\']',
-            r'\1package="' + package_name + '"',
-            content,
-            count=1
-        )
+        content = re.sub(r'(<manifest[^>]*\b)package\s*=\s*["\'][^"\']*["\']', r'\1package="' + package_name + '"', content, count=1)
         log("Replaced existing package attribute")
     else:
-        # Insert package attribute
-        content = re.sub(
-            r'(<manifest\b)([^>]*)',
-            r'\1 package="' + package_name + r'"\2',
-            content,
-            count=1
-        )
+        content = re.sub(r'(<manifest\b)([^>]*)', r'\1 package="' + package_name + r'"\2', content, count=1)
         log("Inserted package attribute")
 
-    # Update host name in intent filters
     host_name = os.getenv("HOST_NAME", "")
     if host_name:
         clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
-        content = re.sub(
-            r'android:host="[^"]*"',
-            f'android:host="{clean_host}"',
-            content
-        )
+        content = re.sub(r'android:host="[^"]*"', f'android:host="{clean_host}"', content)
         log(f"Updated intent filter host to: {clean_host}")
 
     if content != original:
         manifest_path.write_text(content)
         log(f"Updated {manifest_path}")
         return True
-    else:
-        log(f"No changes required for {manifest_path}")
-        return True
+    return True
 
 def main():
     log("Starting enhanced Android project customization...")
-
     try:
         build_id = read_env_or_fail('BUILD_ID')
         host_name = read_env_or_fail('HOST_NAME')
@@ -264,14 +198,7 @@ def main():
         log(f"Launch URL: {launch_url}")
         log(f"App Name: {app_name}")
 
-        # Find Android project directory
-        possible_dirs = [
-            Path('.'),
-            Path('android-project'),
-            Path('app'),
-            Path('..') / 'android-project'
-        ]
-        
+        possible_dirs = [Path('.'), Path('android-project'), Path('app'), Path('..') / 'android-project']
         app_dir = None
         for possible in possible_dirs:
             if (possible / 'src' / 'main').exists():
@@ -280,34 +207,27 @@ def main():
             elif (possible / 'app' / 'src' / 'main').exists():
                 app_dir = possible / 'app'
                 break
-        
         if not app_dir:
             log("Error: Could not find Android project directory")
             return 1
-        
         log(f"Using app directory: {app_dir.resolve()}")
 
-        # Generate package name
         package_name = generate_package_name(host_name)
 
-        # Update build.gradle files
         for build_file in ['build.gradle', 'build.gradle.kts']:
             build_path = app_dir / build_file
             if build_path.exists():
                 ensure_gradle_namespace_and_appid(build_path, package_name)
 
-        # Update AndroidManifest.xml
         main_dir = app_dir / 'src' / 'main'
         manifest_path = main_dir / 'AndroidManifest.xml'
         if not ensure_manifest_package(manifest_path, package_name):
             log("Error: Failed to update AndroidManifest.xml")
             return 1
 
-        # Ensure resources directory exists
         res_dir = main_dir / 'res'
         values_dir = ensure_resources_directory(res_dir)
 
-        # Create/update strings.xml and colors.xml
         create_strings_xml(values_dir, app_name, launcher_name, host_name, launch_url)
         create_colors_xml(values_dir, theme_color, theme_color_dark, background_color)
 
@@ -321,5 +241,6 @@ def main():
 
 if __name__ == '__main__':
     exit(main())
+
 
 
