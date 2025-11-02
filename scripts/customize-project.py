@@ -2,7 +2,6 @@
 
 import os
 import re
-import xml.etree.ElementTree as ET
 from pathlib import Path
 import traceback
 
@@ -40,30 +39,54 @@ def generate_package_name(host_name: str):
     log(f"Generated package name: {final_package}")
     return final_package
 
-def ensure_resources(res_dir: Path):
-    """Ensure resource directories exist."""
-    res_dir.mkdir(parents=True, exist_ok=True)
-    values_dir = res_dir / 'values'
-    values_dir.mkdir(exist_ok=True)
-    return values_dir
-
-def create_strings_xml(values_dir, app_name, launcher_name, host_name, launch_url):
-    """Create or update strings.xml with app configuration."""
-    path = values_dir / 'strings.xml'
-    package_name = generate_package_name(host_name)
-    provider_authority = f"{package_name}.fileprovider"
+def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, host_name: str, 
+                                   launch_url: str, app_name: str, launcher_name: str,
+                                   theme_color: str, theme_color_dark: str, background_color: str):
+    """Update the twaManifest map in build.gradle."""
+    if not build_gradle_path.exists():
+        log(f"ERROR: {build_gradle_path} not found")
+        return False
     
-    # Clean the host name for use in strings
-    clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
+    content = build_gradle_path.read_text()
+    clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0].split('?')[0]
     
-    # Digital Asset Links statement for TWA
-    # This allows
-
-def create_colors_xml(values_dir, theme_color, theme_color_dark, background_color):
-    """Create or update colors.xml with theme colors."""
-    path = values_dir / 'colors.xml'
+    # Update twaManifest values
+    content = re.sub(
+        r"applicationId:\s*['\"].*?['\"]",
+        f"applicationId: '{package_name}'",
+        content
+    )
+    log(f"Set applicationId to {package_name}")
     
-    # Ensure colors start with #
+    content = re.sub(
+        r"hostName:\s*['\"].*?['\"]",
+        f"hostName: '{clean_host}'",
+        content
+    )
+    log(f"Set hostName to {clean_host}")
+    
+    content = re.sub(
+        r"launchUrl:\s*['\"].*?['\"]",
+        f"launchUrl: '{launch_url}'",
+        content
+    )
+    log(f"Set launchUrl to {launch_url}")
+    
+    content = re.sub(
+        r"name:\s*['\"].*?['\"],\s*//\s*The application name",
+        f"name: '{app_name}', // The application name",
+        content
+    )
+    log(f"Set name to {app_name}")
+    
+    content = re.sub(
+        r"launcherName:\s*['\"].*?['\"]",
+        f"launcherName: '{launcher_name}'",
+        content
+    )
+    log(f"Set launcherName to {launcher_name}")
+    
+    # Ensure colors have # prefix
     def ensure_hash(color):
         return color if color.startswith('#') else f'#{color}'
     
@@ -71,147 +94,86 @@ def create_colors_xml(values_dir, theme_color, theme_color_dark, background_colo
     theme_color_dark = ensure_hash(theme_color_dark)
     background_color = ensure_hash(background_color)
     
-    content = f'''<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Primary theme colors -->
-    <color name="colorPrimary">{theme_color}</color>
-    <color name="colorPrimaryDark">{theme_color_dark}</color>
-    <color name="backgroundColor">{background_color}</color>
-    <color name="navigationBarColor">{theme_color_dark}</color>
-    <color name="statusBarColor">{theme_color_dark}</color>
+    content = re.sub(
+        r"themeColor:\s*['\"].*?['\"]",
+        f"themeColor: '{theme_color}'",
+        content
+    )
+    log(f"Set themeColor to {theme_color}")
     
-    <!-- Shortcut and icon colors -->
-    <color name="shortcut_background">{theme_color}</color>
-    <color name="shortcut_foreground">#FFFFFF</color>
+    content = re.sub(
+        r"themeColorDark:\s*['\"].*?['\"]",
+        f"themeColorDark: '{theme_color_dark}'",
+        content
+    )
+    log(f"Set themeColorDark to {theme_color_dark}")
     
-    <!-- Additional UI colors -->
-    <color name="colorAccent">{theme_color}</color>
-    <color name="splashScreenBackground">{background_color}</color>
-</resources>'''
+    content = re.sub(
+        r"backgroundColor:\s*['\"].*?['\"]",
+        f"backgroundColor: '{background_color}'",
+        content
+    )
+    log(f"Set backgroundColor to {background_color}")
     
-    path.write_text(content, encoding='utf-8')
-    log(f"Created/updated colors.xml at {path}")
+    # Also update the namespace line
+    content = re.sub(
+        r'namespace\s+".*?"',
+        f'namespace "{package_name}"',
+        content
+    )
+    
+    # Update the applicationId in defaultConfig (it references twaManifest)
+    content = re.sub(
+        r'applicationId\s+".*?"',
+        f'applicationId "{package_name}"',
+        content
+    )
+    
+    build_gradle_path.write_text(content)
+    log(f"✅ Updated {build_gradle_path}")
+    return True
 
-def update_gradle(build_gradle_path: Path, package_name: str):
-    """Update build.gradle with package name and configuration."""
-    if not build_gradle_path.exists():
-        log(f"Warning: {build_gradle_path} not found")
-        return
-    
-    content = build_gradle_path.read_text()
-    original = content
-    is_kts = build_gradle_path.suffix == '.kts'
-
-    # For Kotlin DSL
-    if is_kts:
-        # Update namespace
-        if 'namespace' in content:
-            content = re.sub(
-                r'namespace\s*=\s*"[^"]*"',
-                f'namespace = "{package_name}"',
-                content
-            )
-            log("Updated namespace in build.gradle.kts")
-        else:
-            content = re.sub(
-                r'(android\s*\{)',
-                f'\\1\n    namespace = "{package_name}"',
-                content,
-                count=1
-            )
-            log("Added namespace to build.gradle.kts")
-        
-        # Update applicationId
-        if 'applicationId' in content:
-            content = re.sub(
-                r'applicationId\s*=\s*"[^"]*"',
-                f'applicationId = "{package_name}"',
-                content
-            )
-            log("Updated applicationId in build.gradle.kts")
-        else:
-            content = re.sub(
-                r'(defaultConfig\s*\{)',
-                f'\\1\n        applicationId = "{package_name}"',
-                content,
-                count=1
-            )
-            log("Added applicationId to build.gradle.kts")
-    
-    # For Groovy DSL
-    else:
-        # Update or add namespace (matches both syntaxes: namespace "..." and namespace = "...")
-        namespace_pattern = r'namespace\s*[=]?\s*["\'][^"\']*["\']'
-        if re.search(namespace_pattern, content):
-            content = re.sub(
-                namespace_pattern,
-                f'namespace "{package_name}"',
-                content
-            )
-            log("Updated namespace in build.gradle")
-        else:
-            # Add namespace after android { opening
-            content = re.sub(
-                r'(android\s*\{)',
-                f'\\1\n    namespace "{package_name}"',
-                content,
-                count=1
-            )
-            log("Added namespace to build.gradle")
-        
-        # Update or add applicationId
-        appid_pattern = r'applicationId\s*[=]?\s*["\'][^"\']*["\']'
-        if re.search(appid_pattern, content):
-            content = re.sub(
-                appid_pattern,
-                f'applicationId "{package_name}"',
-                content
-            )
-            log("Updated applicationId in build.gradle")
-        else:
-            # Add applicationId after defaultConfig { opening
-            content = re.sub(
-                r'(defaultConfig\s*\{)',
-                f'\\1\n        applicationId "{package_name}"',
-                content,
-                count=1
-            )
-            log("Added applicationId to build.gradle")
-
-    if content != original:
-        build_gradle_path.write_text(content)
-        log(f"✅ Saved changes to {build_gradle_path}")
-    else:
-        log(f"No changes needed for {build_gradle_path}")
-
-def update_manifest(manifest_path: Path, host_name: str, package_name: str):
-    """Update AndroidManifest.xml with package name and host."""
+def update_manifest_remove_package(manifest_path: Path):
+    """Remove deprecated package attribute from AndroidManifest.xml."""
     if not manifest_path.exists():
-        log(f"ERROR: Manifest not found at {manifest_path}")
+        log(f"WARNING: Manifest not found at {manifest_path}")
         return False
     
     try:
         content = manifest_path.read_text()
         
-        # Remove package attribute (deprecated in AGP 7.0+, should only be in build.gradle)
-        content = re.sub(r'\s*package="[^"]*"', '', content)
-        log("Removed deprecated package attribute from manifest")
+        # Remove package attribute (deprecated in AGP 7.0+)
+        if 'package=' in content:
+            content = re.sub(r'\s*package="[^"]*"', '', content)
+            manifest_path.write_text(content)
+            log("✅ Removed deprecated package attribute from AndroidManifest.xml")
+        else:
+            log("No package attribute found in manifest (already clean)")
         
-        # Clean the host name
-        clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0].split('?')[0]
-        
-        # Update android:host attributes (for intent filters and data tags)
-        if 'android:host=' in content:
-            content = re.sub(r'android:host="[^"]*"', f'android:host="{clean_host}"', content)
-            log(f"Updated android:host to {clean_host}")
-        
-        manifest_path.write_text(content)
-        log(f"✅ Updated AndroidManifest.xml (host={clean_host})")
         return True
         
     except Exception as e:
         log(f"ERROR updating manifest: {e}")
         return False
+
+def create_asset_links(values_dir: Path, host_name: str, package_name: str):
+    """Create assetlinks.xml for Digital Asset Links verification."""
+    path = values_dir / 'assetlinks.xml'
+    
+    clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0].split('?')[0]
+    
+    # Note: In production, you need to add the SHA256 fingerprint of your signing key
+    # Get it with: keytool -list -v -keystore my-release-key.jks
+    content = f'''<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="assetStatements">
+        [{{"relation": ["delegate_permission/common.handle_all_urls"], 
+          "target": {{"namespace": "web", "site": "https://{clean_host}"}}}}]
+    </string>
+</resources>'''
+    
+    path.write_text(content, encoding='utf-8')
+    log(f"✅ Created assetlinks.xml at {path}")
 
 def main():
     log("=" * 60)
@@ -220,7 +182,6 @@ def main():
     
     try:
         # Read environment variables
-        # BUILD_ID is optional, not used in the script
         build_id = os.getenv('BUILD_ID', 'local')
         
         # Required variables
@@ -244,9 +205,6 @@ def main():
         app_dir = Path('android-project/app')
         if not app_dir.exists():
             log(f"ERROR: App directory not found at {app_dir.resolve()}")
-            log("Current directory contents:")
-            for item in Path('.').iterdir():
-                log(f"  - {item}")
             return 1
         
         main_dir = app_dir / 'src/main'
@@ -260,26 +218,28 @@ def main():
         package_name = generate_package_name(host_name)
         log("=" * 60)
 
-        # Update Gradle build files
-        log("Updating Gradle configuration...")
-        for gradle_file in ['build.gradle', 'build.gradle.kts']:
-            build_path = app_dir / gradle_file
-            if build_path.exists():
-                update_gradle(build_path, package_name)
+        # Update build.gradle with twaManifest values
+        log("Updating build.gradle with twaManifest configuration...")
+        build_gradle = app_dir / 'build.gradle'
+        if not update_twa_manifest_in_gradle(
+            build_gradle, package_name, host_name, launch_url,
+            app_name, launcher_name, theme_color, theme_color_dark, background_color
+        ):
+            log("WARNING: Failed to update build.gradle")
         
-        # Update AndroidManifest.xml
-        log("Updating AndroidManifest.xml...")
+        # Update AndroidManifest.xml (remove deprecated package attribute)
+        log("Cleaning up AndroidManifest.xml...")
         manifest_path = main_dir / 'AndroidManifest.xml'
-        if not update_manifest(manifest_path, host_name, package_name):
-            log("WARNING: Failed to update manifest, but continuing...")
+        update_manifest_remove_package(manifest_path)
 
-        # Update resource files
-        log("Creating/updating resource files...")
+        # Create assetlinks for Digital Asset Links
+        log("Creating Digital Asset Links configuration...")
         res_dir = main_dir / 'res'
-        values_dir = ensure_resources(res_dir)
+        res_dir.mkdir(parents=True, exist_ok=True)
+        values_dir = res_dir / 'values'
+        values_dir.mkdir(exist_ok=True)
         
-        create_strings_xml(values_dir, app_name, launcher_name, host_name, launch_url)
-        create_colors_xml(values_dir, theme_color, theme_color_dark, background_color)
+        create_asset_links(values_dir, host_name, package_name)
 
         log("=" * 60)
         log("✅ Android project customization completed successfully!")
