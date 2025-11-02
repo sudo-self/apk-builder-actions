@@ -12,6 +12,11 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
     - name: Setup JDK
       uses: actions/setup-java@v4
       with:
@@ -28,52 +33,14 @@ jobs:
         restore-keys: |
           gradle-
 
-    - name: Clone and customize
+    - name: Clone Android template
+      run: git clone https://github.com/sudo-self/template_apk.git android-project
+
+    - name: Customize Android project
       run: |
-        git clone https://github.com/sudo-self/template_apk.git android-project
-        cd android-project
-
-        JSON_FILE=$(find . -name "twa-manifest.json" -type f | head -1)
-
-        # Select icon URL
-        if [ "$ICON_CHOICE" = "castle" ]; then
-          ICON_URL="https://apk.jessejesse.com/castle-512.png"
-        elif [ "$ICON_CHOICE" = "smile" ]; then
-          ICON_URL="https://apk.jessejesse.com/smile-512.png"
-        else
-          ICON_URL="https://apk.jessejesse.com/phone-512.png"
-        fi
-
-        # Compute package ID and provider authority
-        PACKAGE_ID="com.${HOST_NAME//./}.twa"
-        PROVIDER_AUTHORITY="${PACKAGE_ID}.fileprovider"
-
-        # Patch JSON manifest
-        sed -i "s|\"host\": \"[^\"]*\"|\"host\": \"$HOST_NAME\"|g" "$JSON_FILE"
-        sed -i "s|\"name\": \"[^\"]*\"|\"name\": \"$APP_NAME\"|g" "$JSON_FILE"
-        sed -i "s|\"launcherName\": \"[^\"]*\"|\"launcherName\": \"$LAUNCHER_NAME\"|g" "$JSON_FILE"
-        sed -i "s|\"startUrl\": \"[^\"]*\"|\"startUrl\": \"$LAUNCH_URL\"|g" "$JSON_FILE"
-        sed -i "s|\"themeColor\": \"[^\"]*\"|\"themeColor\": \"$THEME_COLOR\"|g" "$JSON_FILE"
-        sed -i "s|\"themeColorDark\": \"[^\"]*\"|\"themeColorDark\": \"$THEME_COLOR_DARK\"|g" "$JSON_FILE"
-        sed -i "s|\"backgroundColor\": \"[^\"]*\"|\"backgroundColor\": \"$BACKGROUND_COLOR\"|g" "$JSON_FILE"
-        sed -i "s|\"fullScopeUrl\": \"[^\"]*\"|\"fullScopeUrl\": \"https://$HOST_NAME/\"|g" "$JSON_FILE"
-        sed -i "s|\"iconUrl\": \"[^\"]*\"|\"iconUrl\": \"$ICON_URL\"|g" "$JSON_FILE"
-        sed -i "s|\"packageId\": \"[^\"]*\"|\"packageId\": \"$PACKAGE_ID\"|g" "$JSON_FILE"
-
-        # Update strings.xml
-        STRINGS_FILE="app/src/main/res/values/strings.xml"
-        sed -i "s|<string name=\"hostName\">[^<]*</string>|<string name=\"hostName\">$HOST_NAME</string>|g" "$STRINGS_FILE"
-        sed -i "s|<string name=\"launchUrl\">[^<]*</string>|<string name=\"launchUrl\">https://$HOST_NAME$LAUNCH_URL</string>|g" "$STRINGS_FILE"
-        sed -i "s|<string name=\"appName\">[^<]*</string>|<string name=\"appName\">$APP_NAME</string>|g" "$STRINGS_FILE"
-        sed -i "s|<string name=\"launcherName\">[^<]*</string>|<string name=\"launcherName\">$LAUNCHER_NAME</string>|g" "$STRINGS_FILE"
-        sed -i "s|<string name=\"providerAuthority\">[^<]*</string>|<string name=\"providerAuthority\">$PROVIDER_AUTHORITY</string>|g" "$STRINGS_FILE"
-
-        echo "Updated JSON and strings.xml:"
-        cat "$JSON_FILE" | grep -E "(host|name|launcherName|startUrl|themeColor|iconUrl)"
-        echo "Using icon: $ICON_URL"
-        echo "Provider Authority: $PROVIDER_AUTHORITY"
-
+        python3 scripts/customize-project.py
       env:
+        BUILD_ID: ${{ github.run_id }}
         HOST_NAME: ${{ github.event.client_payload.hostName }}
         LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
         APP_NAME: ${{ github.event.client_payload.name }}
@@ -81,7 +48,6 @@ jobs:
         THEME_COLOR: ${{ github.event.client_payload.themeColor }}
         THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
         BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
-        ICON_CHOICE: ${{ github.event.client_payload.iconChoice }}
 
     - name: Build APK
       run: |
@@ -94,6 +60,7 @@ jobs:
       with:
         name: ${{ github.event.client_payload.name }}-app
         path: android-project/app/build/outputs/apk/debug/app-debug.apk
+
 
 
 
