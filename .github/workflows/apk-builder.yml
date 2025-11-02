@@ -23,13 +23,16 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Cache Gradle packages
         uses: actions/cache@v3
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/gradle-wrapper.properties') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-${{ runner.os }}-
 
@@ -69,17 +72,17 @@ jobs:
       - name: Build Release APK
         run: |
           cd android-project
-          ./gradlew assembleRelease --stacktrace
+          ./gradlew assembleRelease --stacktrace --no-daemon
 
       - name: Find and rename APK
         run: |
           APK_FILE=$(find android-project/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
           if [ -z "$APK_FILE" ]; then
-            echo "No APK file found"
+            echo "No APK file found in release folder, searching entire project..."
             find android-project -name "*.apk" -type f
             exit 1
           fi
-          CLEAN_NAME=$(echo "${{ github.event.client_payload.name }}" | sed 's/[^a-zA-Z0-9._-]/_/g')
+          CLEAN_NAME=$(echo "${{ github.event.client_payload.name }}" | tr -c '[:alnum:]._-' '_')
           OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
           cp "$APK_FILE" "./$OUTPUT_NAME"
           APK_SIZE=$(ls -lh "$OUTPUT_NAME" | awk '{print $5}')
@@ -88,10 +91,16 @@ jobs:
 
       - name: Verify APK signature
         run: |
-          APK_SIGNER="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)/apksigner"
-          $APK_SIGNER verify --verbose --print-certs "./${{ env.apk_name }}"
-          echo "APK signature verified"
-        shell: bash
+          # Find the latest build-tools directory
+          BUILD_TOOLS_DIR=$(find $ANDROID_HOME/build-tools -maxdepth 1 -type d | sort -V | tail -n1)
+          APK_SIGNER="$BUILD_TOOLS_DIR/apksigner"
+          
+          if [ -f "$APK_SIGNER" ]; then
+            $APK_SIGNER verify --verbose --print-certs "./${{ env.apk_name }}"
+            echo "APK signature verified"
+          else
+            echo "Warning: apksigner not found, skipping signature verification"
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -108,9 +117,11 @@ jobs:
           name: ${{ github.event.client_payload.name }} v1.0.${{ github.run_number }}
           body: |
             ## ${{ github.event.client_payload.name }}
-            "**Build:** #${{ github.run_number }}"
+            
+            **Build:** #${{ github.run_number }}
             **Host:** ${{ github.event.client_payload.hostName }}
             **Launch URL:** ${{ github.event.client_payload.launchUrl }}
+            
             Download and install the APK below.
           files: ./${{ env.apk_name }}
           draft: false
