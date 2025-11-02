@@ -47,24 +47,6 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-      - name: Create keystore properties
-        run: |
-          cd android-project
-          cat > keystore.properties << EOF
-storeFile=android.keystore
-storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-keyAlias=${{ secrets.KEY_ALIAS }}
-keyPassword=${{ secrets.KEY_PASSWORD }}
-EOF
-          echo "Keystore properties created"
-
-      - name: Validate keystore setup
-        run: |
-          echo "Checking keystore files..."
-          ls -la android-project/android.keystore || echo "Keystore file missing"
-          ls -la android-project/keystore.properties || echo "Keystore properties missing"
-          echo "Keystore setup validated"
-
       - name: Customize Android project
         run: python3 scripts/customize-project.py
         env:
@@ -76,13 +58,6 @@ EOF
           THEME_COLOR: ${{ github.event.client_payload.themeColor }}
           THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
           BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
-
-      - name: Validate Gradle configuration
-        run: |
-          cd android-project
-          chmod +x gradlew
-          ./gradlew tasks --dry-run
-          echo "Gradle configuration is valid"
 
       - name: Build Release APK
         run: |
