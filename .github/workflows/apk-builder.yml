@@ -12,22 +12,22 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Setup Android
-      uses: android-actions/setup-android@v3
+    - name: Setup JDK
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
 
-    - name: Clone and build debug APK
+    - name: Clone and build
       run: |
         git clone https://github.com/sudo-self/template_apk.git android-project
         cd android-project
         chmod +x gradlew
+        
+        # Build debug APK (faster than release)
         ./gradlew assembleDebug
 
-    - name: List build outputs to see what exists
-      run: |
-        cd android-project
-        find . -name "*.apk" -type f
-
-    - name: Upload debug APK
+    - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: android-app
