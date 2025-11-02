@@ -102,41 +102,85 @@ def update_gradle(build_gradle_path: Path, package_name: str):
     original = content
     is_kts = build_gradle_path.suffix == '.kts'
 
-    # Patterns for namespace and applicationId
-    ns_pat = r'namespace\s*[:=]\s*["\'].*?["\']'
-    id_pat = r'applicationId\s*[:=]?\s*["\'].*?["\']'
+    # For Kotlin DSL
+    if is_kts:
+        # Update namespace
+        if 'namespace' in content:
+            content = re.sub(
+                r'namespace\s*=\s*"[^"]*"',
+                f'namespace = "{package_name}"',
+                content
+            )
+            log("Updated namespace in build.gradle.kts")
+        else:
+            content = re.sub(
+                r'(android\s*\{)',
+                f'\\1\n    namespace = "{package_name}"',
+                content,
+                count=1
+            )
+            log("Added namespace to build.gradle.kts")
+        
+        # Update applicationId
+        if 'applicationId' in content:
+            content = re.sub(
+                r'applicationId\s*=\s*"[^"]*"',
+                f'applicationId = "{package_name}"',
+                content
+            )
+            log("Updated applicationId in build.gradle.kts")
+        else:
+            content = re.sub(
+                r'(defaultConfig\s*\{)',
+                f'\\1\n        applicationId = "{package_name}"',
+                content,
+                count=1
+            )
+            log("Added applicationId to build.gradle.kts")
     
-    # Replacement strings
-    ns_repl = f'namespace = "{package_name}"' if is_kts else f'namespace "{package_name}"'
-    id_repl = f'applicationId = "{package_name}"' if is_kts else f'applicationId "{package_name}"'
-
-    # Update namespace
-    if re.search(ns_pat, content, re.MULTILINE):
-        content = re.sub(ns_pat, ns_repl, content, re.MULTILINE)
-        log("Updated namespace in build.gradle")
+    # For Groovy DSL
     else:
-        # Try to add namespace to android block
-        android_block = re.search(r'android\s*\{', content)
-        if android_block:
-            insert_pos = android_block.end()
-            content = content[:insert_pos] + f'\n    {ns_repl}\n' + content[insert_pos:]
-            log("Inserted namespace in android block")
-
-    # Update applicationId
-    if re.search(id_pat, content, re.MULTILINE):
-        content = re.sub(id_pat, id_repl, content, re.MULTILINE)
-        log("Updated applicationId in build.gradle")
-    else:
-        # Try to add applicationId to defaultConfig block
-        default_config = re.search(r'defaultConfig\s*\{', content)
-        if default_config:
-            insert_pos = default_config.end()
-            content = content[:insert_pos] + f'\n        {id_repl}\n' + content[insert_pos:]
-            log("Inserted applicationId in defaultConfig")
+        # Update or add namespace (matches both syntaxes: namespace "..." and namespace = "...")
+        namespace_pattern = r'namespace\s*[=]?\s*["\'][^"\']*["\']'
+        if re.search(namespace_pattern, content):
+            content = re.sub(
+                namespace_pattern,
+                f'namespace "{package_name}"',
+                content
+            )
+            log("Updated namespace in build.gradle")
+        else:
+            # Add namespace after android { opening
+            content = re.sub(
+                r'(android\s*\{)',
+                f'\\1\n    namespace "{package_name}"',
+                content,
+                count=1
+            )
+            log("Added namespace to build.gradle")
+        
+        # Update or add applicationId
+        appid_pattern = r'applicationId\s*[=]?\s*["\'][^"\']*["\']'
+        if re.search(appid_pattern, content):
+            content = re.sub(
+                appid_pattern,
+                f'applicationId "{package_name}"',
+                content
+            )
+            log("Updated applicationId in build.gradle")
+        else:
+            # Add applicationId after defaultConfig { opening
+            content = re.sub(
+                r'(defaultConfig\s*\{)',
+                f'\\1\n        applicationId "{package_name}"',
+                content,
+                count=1
+            )
+            log("Added applicationId to build.gradle")
 
     if content != original:
         build_gradle_path.write_text(content)
-        log(f"Saved changes to {build_gradle_path}")
+        log(f"✅ Saved changes to {build_gradle_path}")
     else:
         log(f"No changes needed for {build_gradle_path}")
 
