@@ -130,7 +130,7 @@ def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, ho
     )
     
     build_gradle_path.write_text(content)
-    log(f"✅ Updated {build_gradle_path}")
+    log(f"Updated {build_gradle_path}")
     return True
 
 def update_manifest_remove_package(manifest_path: Path):
@@ -146,7 +146,7 @@ def update_manifest_remove_package(manifest_path: Path):
         if 'package=' in content:
             content = re.sub(r'\s*package="[^"]*"', '', content)
             manifest_path.write_text(content)
-            log("✅ Removed deprecated package attribute from AndroidManifest.xml")
+            log("Removed deprecated package attribute from AndroidManifest.xml")
         else:
             log("No package attribute found in manifest (already clean)")
         
@@ -173,7 +173,7 @@ def create_asset_links(values_dir: Path, host_name: str, package_name: str):
 </resources>'''
     
     path.write_text(content, encoding='utf-8')
-    log(f"✅ Created assetlinks.xml at {path}")
+    log(f"Created assetlinks.xml at {path}")
 
 def main():
     log("=" * 60)
@@ -242,13 +242,13 @@ def main():
         create_asset_links(values_dir, host_name, package_name)
 
         log("=" * 60)
-        log("✅ Android project customization completed successfully!")
+        log("Android project customization completed successfully!")
         log("=" * 60)
         return 0
 
     except ValueError as e:
         log("=" * 60)
-        log(f"❌ ERROR: {e}")
+        log(f"ERROR: {e}")
         log("=" * 60)
         log("\nEnvironment variables received:")
         for key in ['BUILD_ID', 'HOST_NAME', 'LAUNCH_URL', 'APP_NAME', 'LAUNCHER_NAME', 
@@ -259,13 +259,14 @@ def main():
         
     except Exception as e:
         log("=" * 60)
-        log(f"❌ UNEXPECTED ERROR: {e}")
+        log(f"UNEXPECTED ERROR: {e}")
         log("=" * 60)
         traceback.print_exc()
         return 1
 
 if __name__ == '__main__':
     exit(main())
+
 
 
 
