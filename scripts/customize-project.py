@@ -4,6 +4,9 @@ import os
 import re
 from pathlib import Path
 import traceback
+import base64
+from PIL import Image
+import io
 
 def log(msg):
     print(f"[CUSTOMIZE] {msg}")
@@ -156,49 +159,45 @@ def update_manifest_remove_package(manifest_path: Path):
         log(f"ERROR updating manifest: {e}")
         return False
 
-def create_asset_links(values_dir: Path, host_name: str, package_name: str):
-    """Create assetlinks.xml for Digital Asset Links verification."""
-    values_dir.mkdir(parents=True, exist_ok=True)
-    path = values_dir / 'assetlinks.xml'
+def set_launcher_icons(app_dir: Path, icon_base64: str = None):
+    """Replace launcher icons with either default or user-provided icon."""
+    mipmap_dirs = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']
+    res_dir = app_dir / 'src/main/res'
     
-    clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0].split('?')[0]
+    if icon_base64:
+        log("Using user-provided icon")
+        icon_data = base64.b64decode(icon_base64)
+        img = Image.open(io.BytesIO(icon_data))
+    else:
+        log("No ICON_BASE64 provided; using default template icons")
+        return  # defaults are already in the template
     
-    # UPDATE THIS LINE with your actual SHA256 fingerprint
-    sha256_fingerprint = "A0:2C:AA:A7:1A:5D:AD:43:47:FD:BF:08:DB:97:30:30:6A:3C:EB:AC:11:C8:E2:3F:9A:5E:10:15:BE:0D:19:CC"
+    sizes = {'mipmap-mdpi': 48, 'mipmap-hdpi': 72, 'mipmap-xhdpi': 96,
+             'mipmap-xxhdpi': 144, 'mipmap-xxxhdpi': 192}
     
-    content = f'''<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="assetStatements">
-        [{{"relation": ["delegate_permission/common.handle_all_urls"], 
-          "target": {{"namespace": "web", "site": "https://{clean_host}"}}}},
-         {{"relation": ["delegate_permission/common.handle_all_urls"],
-          "target": {{"namespace": "android_app", "package_name": "{package_name}",
-                      "sha256_cert_fingerprints": ["{sha256_fingerprint}"]}}}}]
-    </string>
-</resources>'''
-    
-    path.write_text(content, encoding='utf-8')
-    log(f"Created assetlinks.xml at {path}")
-    
+    for mipmap, size in sizes.items():
+        dir_path = res_dir / mipmap
+        dir_path.mkdir(parents=True, exist_ok=True)
+        target_file = dir_path / 'ic_launcher.png'
+        resized = img.resize((size, size), Image.ANTIALIAS)
+        resized.save(target_file, format='PNG')
+        log(f"Written icon to {target_file} ({size}x{size})")
+
 def main():
     log("=" * 60)
     log("Starting Android project customization...")
     log("=" * 60)
     
     try:
-    
         build_id = os.getenv('BUILD_ID', 'local')
-        
-     
         host_name = read_env_or_fail('HOST_NAME')
         app_name = read_env_or_fail('APP_NAME')
-        
-      
         launch_url = os.getenv('LAUNCH_URL', '/')
         launcher_name = os.getenv('LAUNCHER_NAME', app_name)
         theme_color = os.getenv('THEME_COLOR', '#171717')
         theme_color_dark = os.getenv('THEME_COLOR_DARK', '#000000')
         background_color = os.getenv('BACKGROUND_COLOR', '#FFFFFF')
+        icon_base64 = os.getenv('ICON_BASE64')
 
         log(f"Build ID: {build_id}")
         log(f"Host: {host_name}")
@@ -206,7 +205,6 @@ def main():
         log(f"Launcher Name: {launcher_name}")
         log(f"Launch URL: {launch_url}")
 
-     
         app_dir = Path('android-project/app')
         if not app_dir.exists():
             log(f"ERROR: App directory not found at {app_dir.resolve()}")
@@ -216,7 +214,7 @@ def main():
         if not main_dir.exists():
             log(f"ERROR: src/main not found at {main_dir.resolve()}")
             return 1
-            
+        
         log(f"Using app directory: {app_dir.resolve()}")
 
         # package name
@@ -224,18 +222,20 @@ def main():
         log("=" * 60)
 
         # build.gradle
-        log("Updating build.gradle with twaManifest configuration...")
         build_gradle = app_dir / 'build.gradle'
+        log("Updating build.gradle with configuration...")
         if not update_twa_manifest_in_gradle(
             build_gradle, package_name, host_name, launch_url,
             app_name, launcher_name, theme_color, theme_color_dark, background_color
         ):
             log("WARNING: Failed to update build.gradle")
-        
-      
-        log("Cleaning up AndroidManifest.xml...")
+
+        # Manifest cleanup
         manifest_path = main_dir / 'AndroidManifest.xml'
         update_manifest_remove_package(manifest_path)
+
+        # Handle icons
+        set_launcher_icons(app_dir, icon_base64)
 
         log("=" * 60)
         log("Android project customization completed successfully!")
@@ -243,25 +243,17 @@ def main():
         return 0
 
     except ValueError as e:
-        log("=" * 60)
         log(f"ERROR: {e}")
-        log("=" * 60)
-        log("\nEnvironment variables received:")
-        for key in ['BUILD_ID', 'HOST_NAME', 'LAUNCH_URL', 'APP_NAME', 'LAUNCHER_NAME', 
-                    'THEME_COLOR', 'THEME_COLOR_DARK', 'BACKGROUND_COLOR']:
-            value = os.getenv(key, '<not set>')
-            log(f"  {key}: {value}")
         return 1
         
     except Exception as e:
-        log("=" * 60)
         log(f"UNEXPECTED ERROR: {e}")
-        log("=" * 60)
         traceback.print_exc()
         return 1
 
 if __name__ == '__main__':
     exit(main())
+
 
 
 
