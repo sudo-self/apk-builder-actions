@@ -9,8 +9,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout template
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
 
       - name: Setup JDK
         uses: actions/setup-java@v4
@@ -28,38 +33,74 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      - name: Clone Android template
+        run: |
+          git clone https://github.com/sudo-self/template_apk.git android-project
+          echo "Template cloned"
+
+      - name: Verify environment variables
+        run: |
+          echo "Checking required environment variables..."
+          if [ -z "${{ github.event.client_payload.hostName }}" ]; then
+            echo "ERROR: hostName is required in client_payload"
+            exit 1
+          fi
+          if [ -z "${{ github.event.client_payload.name }}" ]; then
+            echo "ERROR: name is required in client_payload"
+            exit 1
+          fi
+          echo "Required variables present"
+
+      - name: Customize Android project
+        run: python3 scripts/customize-project.py
+        env:
+          BUILD_ID: ${{ github.run_id }}
+          HOST_NAME: ${{ github.event.client_payload.hostName }}
+          LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
+          APP_NAME: ${{ github.event.client_payload.name }}
+          LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
+          THEME_COLOR: ${{ github.event.client_payload.themeColor }}
+          THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
+          BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
+
       - name: Make Gradlew Executable
-        run: chmod +x ./gradlew
+        run: chmod +x android-project/gradlew
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease --stacktrace
-
-      - name: Find APK
         run: |
-          APK_FILE=$(find ./app/build/outputs/apk/release -name "*.apk" -type f | head -n1)
+          cd android-project
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Find and rename APK
+        run: |
+          APK_FILE=$(find android-project/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
           if [ -z "$APK_FILE" ]; then
-            echo "No APK found!"
+            echo "No APK file found"
+            find android-project -name "*.apk" -type f
             exit 1
           fi
           CLEAN_NAME=$(echo "${{ github.event.client_payload.name }}" | sed 's/[^a-zA-Z0-9._-]/_/g')
           OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
           cp "$APK_FILE" "./$OUTPUT_NAME"
+          APK_SIZE=$(ls -lh "$OUTPUT_NAME" | awk '{print $5}')
+          echo "APK created: $OUTPUT_NAME ($APK_SIZE)"
           echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
-          echo "APK created: $OUTPUT_NAME"
 
       - name: Verify APK signature
         run: |
-          jarsigner -verify -verbose -certs "./${{ env.apk_name }}"
+          APK_SIGNER="$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)/apksigner"
+          $APK_SIGNER verify --verbose --print-certs "./${{ env.apk_name }}"
           echo "APK signature verified"
+        shell: bash
 
-      - name: Upload APK Artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.client_payload.name }}-app
           path: ./${{ env.apk_name }}
           retention-days: 30
 
-      - name: Optional Release
+      - name: Create Release (optional)
         if: github.event.client_payload.createRelease == 'true'
         uses: softprops/action-gh-release@v1
         with:
@@ -67,13 +108,16 @@ jobs:
           name: ${{ github.event.client_payload.name }} v1.0.${{ github.run_number }}
           body: |
             ## ${{ github.event.client_payload.name }}
-            **Build:** #${{ github.run_number }}
+            "**Build:** #${{ github.run_number }}"
             **Host:** ${{ github.event.client_payload.hostName }}
             **Launch URL:** ${{ github.event.client_payload.launchUrl }}
             Download and install the APK below.
           files: ./${{ env.apk_name }}
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
 
