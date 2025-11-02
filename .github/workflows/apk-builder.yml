@@ -34,16 +34,16 @@ jobs:
     - name: Clone Android template
       run: |
         git clone https://github.com/sudo-self/template_apk.git android-project
-        echo "✅ Template cloned"
+        echo "Template cloned"
         
     - name: Decode keystore
       run: |
         echo "$KEYSTORE_BASE64" | base64 --decode > android-project/my-release-key.jks
         if [ ! -f android-project/my-release-key.jks ]; then
-          echo "❌ Keystore file not created"
+          echo "Keystore file not created"
           exit 1
         fi
-        echo "✅ Keystore decoded successfully"
+        echo "Keystore decoded successfully"
       env:
         KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         
@@ -51,14 +51,14 @@ jobs:
       run: |
         echo "Checking required environment variables..."
         if [ -z "${{ github.event.client_payload.hostName }}" ]; then
-          echo "❌ ERROR: hostName is required in client_payload"
+          echo "ERROR: hostName is required in client_payload"
           exit 1
         fi
         if [ -z "${{ github.event.client_payload.name }}" ]; then
-          echo "❌ ERROR: name is required in client_payload"
+          echo "ERROR: name is required in client_payload"
           exit 1
         fi
-        echo "✅ Required variables present"
+        echo "Required variables present"
         
     - name: Customize Android project
       run: python3 scripts/customize-project.py
@@ -86,7 +86,7 @@ jobs:
         RELEASE_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}
         EOF
         
-        echo "✅ Signing config added"
+        echo "Signing config added"
         
     - name: Update build.gradle for signing
       run: |
@@ -112,7 +112,7 @@ jobs:
             }
         }
         EOF
-          echo "✅ Signing config added to build.gradle"
+          echo "Signing config added to build.gradle"
         fi
         
     - name: Make Gradlew Executable
@@ -128,7 +128,7 @@ jobs:
         APK_FILE=$(find android-project/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
         
         if [ -z "$APK_FILE" ]; then
-          echo "❌ No APK file found"
+          echo "No APK file found"
           find android-project -name "*.apk" -type f
           exit 1
         fi
@@ -140,14 +140,14 @@ jobs:
         
         # Get APK info
         APK_SIZE=$(ls -lh "$OUTPUT_NAME" | awk '{print $5}')
-        echo "✅ APK created: $OUTPUT_NAME ($APK_SIZE)"
+        echo "APK created: $OUTPUT_NAME ($APK_SIZE)"
         
         echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
         
     - name: Verify APK signature
       run: |
         $ANDROID_HOME/build-tools/*/apksigner verify --verbose "./${{ env.apk_name }}"
-        echo "✅ APK signature verified"
+        echo "APK signature verified"
         
     - name: Upload APK
       uses: actions/upload-artifact@v4
