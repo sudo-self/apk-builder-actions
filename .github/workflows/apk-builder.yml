@@ -89,7 +89,7 @@ EOF
         run: |
           cd android-project/app
           if ! grep -q "signingConfigs" build.gradle*; then
-            cat >> build.gradle << 'EOF'
+            cat >> build.gradle <<EOF
 android {
     signingConfigs {
         release {
