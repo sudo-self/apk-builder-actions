@@ -54,6 +54,11 @@ jobs:
           fi
           echo "Required variables present"
 
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install Pillow
+
       - name: Customize Android project
         run: python3 scripts/customize-project.py
         env:
@@ -91,7 +96,6 @@ jobs:
 
       - name: Verify APK signature
         run: |
-          # Find the latest build-tools directory
           BUILD_TOOLS_DIR=$(find $ANDROID_HOME/build-tools -maxdepth 1 -type d | sort -V | tail -n1)
           APK_SIGNER="$BUILD_TOOLS_DIR/apksigner"
           
@@ -128,6 +132,7 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 
 
 
