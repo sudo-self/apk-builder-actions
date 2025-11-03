@@ -115,9 +115,7 @@ def update_manifest_remove_package(manifest_path: Path):
 def download_icon_from_url(icon_url: str):
     try:
         log(f"Downloading icon from: {icon_url}")
-        headers = {
-            'User-Agent': 'Mozilla/5.0'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0'}
         req = urllib.request.Request(icon_url, headers=headers)
         with urllib.request.urlopen(req, timeout=30) as response:
             icon_data = response.read()
@@ -136,16 +134,16 @@ def clean_existing_icons(res_dir: Path):
     cleaned_count = 0
     for dir_path in res_dir.glob('mipmap*'): 
         if dir_path.is_dir():
-            for file_path in dir_path.glob('ic_launcher*'):
-                try:
-                    file_path.unlink()
-                    cleaned_count += 1
-                    log(f"Removed existing icon: {file_path}")
-                except Exception as e:
-                    log(f"ERROR removing {file_path}: {e}")
+            for pattern in ('ic_launcher.png', 'ic_launcher.webp', 'ic_launcher.xml'):
+                for file_path in dir_path.glob(pattern):
+                    try:
+                        file_path.unlink()
+                        cleaned_count += 1
+                        log(f"Removed existing icon: {file_path}")
+                    except Exception as e:
+                        log(f"ERROR removing {file_path}: {e}")
     log(f"Cleaned {cleaned_count} existing icon files")
     return cleaned_count
-
 
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
     res_dir = app_dir / 'src/main/res'
@@ -172,7 +170,7 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             except Exception as e:
                 log(f"ERROR processing downloaded icon: {e}")
     if img is None:
-        log("No custom icon available - using default template icons")
+        log("No custom icon available - skipping launcher icon creation")
         return
     sizes = {
         'mipmap-mdpi': 48,
@@ -267,6 +265,7 @@ def main():
 
 if __name__ == '__main__':
     exit(main())
+
 
 
 
