@@ -131,10 +131,13 @@ def download_icon_from_url(icon_url: str):
     return None
 
 def clean_existing_icons(res_dir: Path):
+    """
+    Deletes all ic_launcher* files in all mipmap-* folders
+    """
     cleaned_count = 0
     for dir_path in res_dir.glob('mipmap*'):
         if dir_path.is_dir():
-            for pattern in ('ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher.webp', 'ic_launcher.xml'):
+            for pattern in ('ic_launcher*', 'ic_launcher_round*'):
                 for file_path in dir_path.glob(pattern):
                     try:
                         file_path.unlink()
@@ -144,6 +147,7 @@ def clean_existing_icons(res_dir: Path):
                         log(f"ERROR removing {file_path}: {e}")
     log(f"Cleaned {cleaned_count} existing icon files")
     return cleaned_count
+
 
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
     res_dir = app_dir / 'src/main/res'
