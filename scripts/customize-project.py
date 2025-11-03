@@ -102,11 +102,14 @@ def update_manifest_remove_package(manifest_path: Path):
         content = manifest_path.read_text()
         original_content = content
         content = re.sub(r'\s*package="[^"]*"', '', content)
+        # Ensure icons are referenced
+        content = re.sub(r'android:icon="[^"]*"', 'android:icon="@mipmap/ic_launcher"', content)
+        content = re.sub(r'android:roundIcon="[^"]*"', 'android:roundIcon="@mipmap/ic_launcher_round"', content)
         if content != original_content:
             manifest_path.write_text(content)
-            log("Removed deprecated package attribute from AndroidManifest.xml")
+            log("Updated AndroidManifest.xml: removed package attribute and set launcher icons")
         else:
-            log("No package attribute found in manifest (already clean)")
+            log("No changes needed in AndroidManifest.xml")
         return True
     except Exception as e:
         log(f"ERROR updating manifest: {e}")
@@ -128,11 +131,8 @@ def download_icon_from_url(icon_url: str):
     return None
 
 def clean_existing_icons(res_dir: Path):
-    """
-    Deletes all ic_launcher* files in all mipmap-* folders
-    """
     cleaned_count = 0
-    for dir_path in res_dir.glob('mipmap*'): 
+    for dir_path in res_dir.glob('mipmap*'):
         if dir_path.is_dir():
             for pattern in ('ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher.webp', 'ic_launcher.xml'):
                 for file_path in dir_path.glob(pattern):
@@ -169,9 +169,10 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
                 img = Image.open(io.BytesIO(icon_data))
             except Exception as e:
                 log(f"ERROR processing downloaded icon: {e}")
+    # Auto-generate placeholder if still None
     if img is None:
-        log("No custom icon available - skipping launcher icon creation")
-        return
+        log("No icon provided, generating placeholder")
+        img = Image.new("RGBA", (512, 512), color=(100, 100, 100, 255))
     sizes = {
         'mipmap-mdpi': 48,
         'mipmap-hdpi': 72, 
@@ -269,6 +270,7 @@ def main():
 
 if __name__ == '__main__':
     exit(main())
+
 
 
 
