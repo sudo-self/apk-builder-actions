@@ -59,6 +59,7 @@ def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, ho
         for pattern, replacement in patterns.items():
             content = re.sub(pattern, replacement, content)
             log(f"Updated: {replacement}")
+
         def ensure_hash(color):
             color = color.strip()
             if not color.startswith('#'):
@@ -67,6 +68,7 @@ def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, ho
         theme_color = ensure_hash(theme_color)
         theme_color_dark = ensure_hash(theme_color_dark)
         background_color = ensure_hash(background_color)
+
         color_patterns = {
             r"themeColor\s*:\s*['\"].*?['\"]": f"themeColor: '{theme_color}'",
             r"themeColorDark\s*:\s*['\"].*?['\"]": f"themeColorDark: '{theme_color_dark}'",
@@ -75,18 +77,12 @@ def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, ho
         for pattern, replacement in color_patterns.items():
             content = re.sub(pattern, replacement, content)
             log(f"Updated: {replacement}")
-        content = re.sub(
-            r'namespace\s+["\'].*?["\']',
-            f'namespace "{package_name}"',
-            content
-        )
-        log(f"Set namespace to {package_name}")
-        content = re.sub(
-            r'applicationId\s+["\'].*?["\']',
-            f'applicationId "{package_name}"',
-            content
-        )
-        log(f"Set applicationId to {package_name}")
+
+        # Ensure namespace and applicationId are correct
+        content = re.sub(r'namespace\s+["\'].*?["\']', f'namespace "{package_name}"', content)
+        content = re.sub(r'applicationId\s+["\'].*?["\']', f'applicationId "{package_name}"', content)
+        log(f"Set namespace and applicationId to {package_name}")
+
         build_gradle_path.write_text(content)
         log(f"Successfully updated {build_gradle_path}")
         return True
@@ -121,20 +117,15 @@ def download_icon_from_url(icon_url: str):
             icon_data = response.read()
         log("Successfully downloaded icon")
         return icon_data
-    except urllib.error.URLError as e:
-        log(f"URL error downloading icon: {e}")
     except Exception as e:
         log(f"ERROR downloading icon: {e}")
     return None
 
 def clean_existing_icons(res_dir: Path):
-    """
-    Deletes all ic_launcher* files in all mipmap-* and mipmap-*-v* folders
-    """
     cleaned_count = 0
-    for dir_path in res_dir.glob('mipmap*'): 
+    for dir_path in res_dir.glob('mipmap*'):
         if dir_path.is_dir():
-            for pattern in ('ic_launcher.png', 'ic_launcher.webp', 'ic_launcher.xml'):
+            for pattern in ('ic_launcher*',):
                 for file_path in dir_path.glob(pattern):
                     try:
                         file_path.unlink()
@@ -161,7 +152,6 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             img = Image.open(io.BytesIO(icon_data))
         except Exception as e:
             log(f"ERROR decoding base64 icon: {e}")
-            img = None
     if img is None and icon_choice and icon_choice in icon_urls:
         icon_data = download_icon_from_url(icon_urls[icon_choice])
         if icon_data:
@@ -170,11 +160,11 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             except Exception as e:
                 log(f"ERROR processing downloaded icon: {e}")
     if img is None:
-        log("No custom icon available - skipping launcher icon creation")
+        log("No icon available - skipping launcher icon creation")
         return
     sizes = {
         'mipmap-mdpi': 48,
-        'mipmap-hdpi': 72, 
+        'mipmap-hdpi': 72,
         'mipmap-xhdpi': 96,
         'mipmap-xxhdpi': 144,
         'mipmap-xxxhdpi': 192
@@ -208,36 +198,37 @@ def main():
         background_color = os.getenv('BACKGROUND_COLOR', '#FFFFFF')
         icon_choice = os.getenv('ICON_CHOICE', 'phone')
         icon_base64 = os.getenv('ICON_BASE64')
+
         log(f"Build ID: {build_id}")
         log(f"Host: {host_name}")
         log(f"App Name: {app_name}")
         log(f"Launcher Name: {launcher_name}")
         log(f"Launch URL: {launch_url}")
         log(f"Theme Color: {theme_color}")
-        log(f"Theme Color Dark: {theme_color_dark}") 
+        log(f"Theme Color Dark: {theme_color_dark}")
         log(f"Background Color: {background_color}")
         log(f"Icon Choice: {icon_choice}")
         log(f"Icon Base64 provided: {'Yes' if icon_base64 else 'No'}")
+
         app_dir = Path('android-project/app')
         if not app_dir.exists():
-            alternative_paths = ['app', './app', '../app']
-            for path in alternative_paths:
+            for path in ['app', './app', '../app']:
                 if Path(path).exists():
                     app_dir = Path(path)
                     break
             else:
                 log(f"ERROR: App directory not found. Checked: {app_dir.resolve()}")
                 return 1
+
         main_dir = app_dir / 'src/main'
         if not main_dir.exists():
             log(f"ERROR: src/main not found at {main_dir.resolve()}")
-            log("Available files:")
-            for item in app_dir.iterdir():
-                log(f"  - {item.name}")
             return 1
+
         log(f"Using app directory: {app_dir.resolve()}")
         package_name = generate_package_name(host_name)
         log("=" * 60)
+
         build_gradle = app_dir / 'build.gradle'
         log("Updating build.gradle with configuration...")
         if not update_twa_manifest_in_gradle(
@@ -246,15 +237,18 @@ def main():
         ):
             log("WARNING: Failed to update build.gradle")
             return 1
+
         manifest_path = main_dir / 'AndroidManifest.xml'
-        if not update_manifest_remove_package(manifest_path):
-            log("WARNING: Failed to update AndroidManifest.xml")
+        update_manifest_remove_package(manifest_path)
+
         log("Setting up launcher icons...")
         set_launcher_icons(app_dir, icon_choice, icon_base64)
+
         log("=" * 60)
         log("Android project customization completed successfully!")
         log("=" * 60)
         return 0
+
     except ValueError as e:
         log(f"ERROR: {e}")
         return 1
@@ -265,6 +259,7 @@ def main():
 
 if __name__ == '__main__':
     exit(main())
+
 
 
 
