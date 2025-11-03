@@ -144,6 +144,43 @@ def update_manifest_remove_package(manifest_path: Path):
         log(f"ERROR updating manifest: {e}")
         return False
 
+def update_strings_xml(app_dir: Path, app_name: str, host_name: str, launch_url: str):
+    """Update the strings.xml file with custom app name and URL."""
+    res_dir = app_dir / 'src/main/res'
+    strings_path = res_dir / 'values/strings.xml'
+    
+    if not strings_path.exists():
+        log(f"ERROR: strings.xml not found at {strings_path}")
+        return False
+    
+    try:
+        content = strings_path.read_text()
+        
+        # Build the full URL
+        full_url = f"https://{host_name}{launch_url}"
+        
+        # Update app_name
+        old_app_name_match = re.search(r'<string name="app_name">([^<]*)</string>', content)
+        if old_app_name_match:
+            old_app_name = old_app_name_match.group(1)
+            content = content.replace(f'<string name="app_name">{old_app_name}</string>', f'<string name="app_name">{app_name}</string>')
+            log(f"Updated app_name from '{old_app_name}' to '{app_name}'")
+        
+        # Update launch_url
+        old_url_match = re.search(r'<string name="launch_url">([^<]*)</string>', content)
+        if old_url_match:
+            old_url = old_url_match.group(1)
+            content = content.replace(f'<string name="launch_url">{old_url}</string>', f'<string name="launch_url">{full_url}</string>')
+            log(f"Updated launch_url from '{old_url}' to '{full_url}'")
+        
+        strings_path.write_text(content)
+        log("Successfully updated strings.xml")
+        return True
+        
+    except Exception as e:
+        log(f"ERROR updating strings.xml: {e}")
+        return False
+
 def update_java_kotlin_package(app_dir: Path, old_package: str, new_package: str):
     """Update package references in Java/Kotlin source files."""
     java_dir = app_dir / 'src/main/java'
@@ -364,6 +401,11 @@ def main():
         manifest_path = main_dir / 'AndroidManifest.xml'
         if not update_manifest_remove_package(manifest_path):
             log("WARNING: Failed to update AndroidManifest.xml")
+
+        # Update strings.xml with custom app name and URL
+        log("Updating strings.xml with custom app name and URL...")
+        if not update_strings_xml(app_dir, app_name, host_name, launch_url):
+            log("WARNING: Failed to update strings.xml")
 
         # Update Java/Kotlin source files with new package
         log("Updating Java/Kotlin source files with new package...")
