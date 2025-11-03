@@ -57,7 +57,12 @@ jobs:
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install Pillow
+          # Install from requirements.txt if it exists, otherwise install Pillow directly
+          if [ -f "requirements.txt" ]; then
+            python3 -m pip install -r requirements.txt
+          else
+            python3 -m pip install Pillow
+          fi
 
       - name: Customize Android project
         run: python3 scripts/customize-project.py
@@ -70,6 +75,7 @@ jobs:
           THEME_COLOR: ${{ github.event.client_payload.themeColor }}
           THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
           BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
+          ICON_CHOICE: ${{ github.event.client_payload.iconChoice || 'phone' }}
 
       - name: Make Gradlew Executable
         run: chmod +x android-project/gradlew
