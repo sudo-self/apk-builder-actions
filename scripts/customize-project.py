@@ -149,6 +149,7 @@ def clean_existing_icons(res_dir: Path):
     return cleaned_count
 
 
+
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
     res_dir = app_dir / 'src/main/res'
     clean_existing_icons(res_dir)
