@@ -9,7 +9,6 @@ from PIL import Image
 import io
 import urllib.request
 import urllib.error
-import shutil
 
 def log(msg):
     print(f"[CUSTOMIZE] {msg}")
@@ -117,7 +116,7 @@ def download_icon_from_url(icon_url: str):
     try:
         log(f"Downloading icon from: {icon_url}")
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0'
         }
         req = urllib.request.Request(icon_url, headers=headers)
         with urllib.request.urlopen(req, timeout=30) as response:
@@ -131,29 +130,16 @@ def download_icon_from_url(icon_url: str):
     return None
 
 def clean_existing_icons(res_dir: Path):
-    mipmap_dirs = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']
     cleaned_count = 0
-    for mipmap_dir in mipmap_dirs:
-        dir_path = res_dir / mipmap_dir
-        if dir_path.exists():
-            for file_path in dir_path.iterdir():
-                if file_path.is_file() and file_path.name.startswith('ic_launcher'):
-                    try:
-                        file_path.unlink()
-                        cleaned_count += 1
-                        log(f"Removed existing icon: {file_path}")
-                    except Exception as e:
-                        log(f"ERROR removing {file_path}: {e}")
-            v26_dir = res_dir / f"{mipmap_dir}-v26"
-            if v26_dir.exists():
-                for file_path in v26_dir.iterdir():
-                    if file_path.is_file() and file_path.name.startswith('ic_launcher'):
-                        try:
-                            file_path.unlink()
-                            cleaned_count += 1
-                            log(f"Removed adaptive icon: {file_path}")
-                        except Exception as e:
-                            log(f"ERROR removing adaptive {file_path}: {e}")
+    for dir_path in res_dir.glob('mipmap*'):  # All mipmap-* folders
+        if dir_path.is_dir():
+            for file_path in dir_path.glob('ic_launcher*'):
+                try:
+                    file_path.unlink()
+                    cleaned_count += 1
+                    log(f"Removed existing icon: {file_path}")
+                except Exception as e:
+                    log(f"ERROR removing {file_path}: {e}")
     log(f"Cleaned {cleaned_count} existing icon files")
     return cleaned_count
 
@@ -175,7 +161,6 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             log(f"ERROR decoding base64 icon: {e}")
             img = None
     if img is None and icon_choice and icon_choice in icon_urls:
-        log(f"Downloading icon: {icon_choice}")
         icon_data = download_icon_from_url(icon_urls[icon_choice])
         if icon_data:
             try:
@@ -278,6 +263,7 @@ def main():
 
 if __name__ == '__main__':
     exit(main())
+
 
 
 
