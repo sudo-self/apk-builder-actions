@@ -144,6 +144,43 @@ def update_manifest_remove_package(manifest_path: Path):
         log(f"ERROR updating manifest: {e}")
         return False
 
+def update_java_kotlin_package(app_dir: Path, old_package: str, new_package: str):
+    """Update package references in Java/Kotlin source files."""
+    java_dir = app_dir / 'src/main/java'
+    
+    if not java_dir.exists():
+        log(f"WARNING: Java source directory not found at {java_dir}")
+        return False
+    
+    # Find all Java and Kotlin files
+    source_files = list(java_dir.rglob('*.java')) + list(java_dir.rglob('*.kt'))
+    
+    updated_count = 0
+    for source_file in source_files:
+        try:
+            content = source_file.read_text()
+            
+            # Update package declaration
+            if f"package {old_package}" in content:
+                content = content.replace(f"package {old_package}", f"package {new_package}")
+                updated_count += 1
+                log(f"Updated package in: {source_file}")
+            
+            # Update import statements
+            content = re.sub(
+                fr'import {re.escape(old_package)}',
+                f'import {new_package}',
+                content
+            )
+            
+            source_file.write_text(content)
+            
+        except Exception as e:
+            log(f"ERROR updating {source_file}: {e}")
+    
+    log(f"Updated package references in {updated_count} source files")
+    return updated_count > 0
+
 def download_icon_from_url(icon_url: str):
     """Download icon from URL using urllib (no external dependencies)."""
     try:
@@ -327,6 +364,11 @@ def main():
         manifest_path = main_dir / 'AndroidManifest.xml'
         if not update_manifest_remove_package(manifest_path):
             log("WARNING: Failed to update AndroidManifest.xml")
+
+        # Update Java/Kotlin source files with new package
+        log("Updating Java/Kotlin source files with new package...")
+        old_package = "com.example.githubactionapks"  # Default package from template
+        update_java_kotlin_package(app_dir, old_package, package_name)
 
         # Handle icons
         log("Setting up launcher icons...")
