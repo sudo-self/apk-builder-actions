@@ -35,7 +35,7 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-${{ runner.os }}-
-
+            
       - name: Clone Android template
         run: git clone https://github.com/sudo-self/template_apk.git android-project
 
@@ -51,7 +51,7 @@ jobs:
             exit 1
           fi
           echo "Required variables present"
-
+          
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
@@ -60,7 +60,7 @@ jobs:
           else
             python3 -m pip install Pillow
           fi
-
+          
       - name: Customize Android project
         run: python3 scripts/customize-project.py
         env:
@@ -81,7 +81,7 @@ jobs:
         run: |
           cd android-project
           ./gradlew assembleRelease --stacktrace --no-daemon
-
+          
       - name: Find and rename APK
         run: |
           APK_FILE=$(find android-project/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
@@ -93,7 +93,7 @@ jobs:
           OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
           cp "$APK_FILE" "./$OUTPUT_NAME"
           echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
-
+          
       - name: Verify APK signature
         run: |
           BUILD_TOOLS_DIR=$(find $ANDROID_HOME/build-tools -maxdepth 1 -type d | sort -V | tail -n1)
@@ -103,7 +103,7 @@ jobs:
           else
             echo "apksigner not found, skipping"
           fi
-
+          
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -114,6 +114,16 @@ jobs:
       ##############################################
       # CREATE RELEASE ON USER'S ACCOUNT (OPTIONAL)
       ##############################################
+
+      - name: Install GitHub CLI
+        if: github.event.client_payload.createRelease == 'true'
+        run: |
+          type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+          && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+          && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+          && sudo apt update \
+          && sudo apt install gh -y
 
       - name: Create user repo (if needed)
         if: github.event.client_payload.createRelease == 'true'
@@ -127,7 +137,7 @@ jobs:
             https://api.github.com/user/repos \
             -d "{\"name\": \"$REPO_NAME\"}" \
           || echo "Repo may already exist, continuing"
-
+          
       - name: Create Release on user's repo
         if: github.event.client_payload.createRelease == 'true'
         env:
