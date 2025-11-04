@@ -118,7 +118,15 @@ def update_strings_xml(app_dir: Path, app_name: str, host_name: str, launch_url:
     
     try:
         content = strings_path.read_text()
-        full_url = f"https://{host_name}{launch_url}"
+
+   
+        if launch_url.startswith("http://") or launch_url.startswith("https://"):
+            full_url = launch_url
+        else:
+            host_name_clean = host_name.replace("https://", "").replace("http://", "")
+            if not launch_url.startswith("/"):
+                launch_url = "/" + launch_url
+            full_url = f"https://{host_name_clean}{launch_url}"
         
         old_app_name_match = re.search(r'<string name="app_name">([^<]*)</string>', content)
         if old_app_name_match:
@@ -139,6 +147,7 @@ def update_strings_xml(app_dir: Path, app_name: str, host_name: str, launch_url:
     except Exception as e:
         log(f"ERROR updating strings.xml: {e}")
         return False
+
 
 def update_java_kotlin_package(app_dir: Path, old_package: str, new_package: str):
     """Update package references in Java/Kotlin source files."""
