@@ -154,7 +154,7 @@ def update_java_kotlin_package(app_dir: Path, old_package: str, new_package: str
         log(f"WARNING: Java source directory not found at {java_dir}")
         return False
     
- 
+    # Find all Java and Kotlin files
     source_files = list(java_dir.rglob('*.java')) + list(java_dir.rglob('*.kt'))
     
     updated_count = 0
@@ -162,13 +162,13 @@ def update_java_kotlin_package(app_dir: Path, old_package: str, new_package: str
         try:
             content = source_file.read_text()
             
-         
+            # Update package declaration
             if f"package {old_package}" in content:
                 content = content.replace(f"package {old_package}", f"package {new_package}")
                 updated_count += 1
                 log(f"Updated package in: {source_file}")
             
-       
+            # Update import statements
             content = re.sub(
                 fr'import {re.escape(old_package)}',
                 f'import {new_package}',
@@ -188,7 +188,7 @@ def download_icon_from_url(icon_url: str):
     try:
         log(f"Downloading icon from: {icon_url}")
         
-  
+        # Set up a request with headers to avoid blocking
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
@@ -215,7 +215,7 @@ def clean_existing_icons(res_dir: Path):
     for mipmap_dir in mipmap_dirs:
         dir_path = res_dir / mipmap_dir
         if dir_path.exists():
-           
+            # Remove ALL icon files (both WebP and PNG)
             for file_path in dir_path.iterdir():
                 if file_path.is_file() and any(name in file_path.name for name in ['ic_launcher', 'ic_foreground']):
                     try:
@@ -229,28 +229,28 @@ def clean_existing_icons(res_dir: Path):
     return cleaned_count
 
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
-    """Replace launcher icons with selected icon - GUARANTEED TO WORK."""
+    """Replace launcher icons with selected icon - FIXED: ONLY WEBP FORMAT."""
     res_dir = app_dir / 'src/main/res'
     
     if not res_dir.exists():
         log(f"ERROR: Resources directory not found at {res_dir}")
         return
     
-  
+    # Clean existing icons first to avoid duplicates
     clean_existing_icons(res_dir)
     
-  
+    # Icon URLs based on choice
     icon_urls = {
         "phone": "https://apk.jessejesse.com/phone-512.png",
         "castle": "https://apk.jessejesse.com/castle-512.png", 
         "smile": "https://apk.jessejesse.com/smile-512.png"
     }
     
-  
+    # Determine which icon to use
     img = None
     icon_source = "default"
     
-   
+    # Try base64 icon first
     if icon_base64:
         log("Attempting to use provided base64 icon")
         try:
@@ -262,7 +262,7 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             log(f"ERROR decoding base64 icon: {e}")
             img = None
     
-   
+    # Try downloaded icon if base64 failed
     if img is None and icon_choice and icon_choice in icon_urls:
         icon_url = icon_urls[icon_choice]
         log(f"Downloading icon: {icon_choice} from {icon_url}")
@@ -276,12 +276,12 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
                 log(f"ERROR processing downloaded icon: {e}")
                 img = None
     
-
+    # Fallback to default template behavior
     if img is None:
         log("No custom icon available - icons will use template defaults")
         return
     
-   
+    # Create different size icons for Android
     sizes = {
         'mipmap-mdpi': 48,
         'mipmap-hdpi': 72, 
@@ -293,51 +293,30 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
     created_count = 0
     
     try:
-        
+        # Create ONLY WebP versions (like the original template)
         for mipmap, size in sizes.items():
             dir_path = res_dir / mipmap
             dir_path.mkdir(parents=True, exist_ok=True)
             
-       
+            # Resize the image once for this density
             resized = img.resize((size, size), Image.Resampling.LANCZOS)
             
-        
-            try:
-              
-                target_file = dir_path / 'ic_launcher.webp'
-                resized.save(target_file, format='WEBP', quality=95, optimize=True)
-                created_count += 1
-                log(f"Created WebP icon: {target_file} ({size}x{size})")
-                
-              
-                round_file = dir_path / 'ic_launcher_round.webp'
-                resized.save(round_file, format='WEBP', quality=95, optimize=True)
-                created_count += 1
-                log(f"Created round WebP icon: {round_file}")
-                
-            except Exception as webp_error:
-                log(f"WebP creation failed for {mipmap}: {webp_error}")
+            # Create WebP versions only
+            # Standard launcher icon - WebP
+            target_file = dir_path / 'ic_launcher.webp'
+            resized.save(target_file, format='WEBP', quality=95, optimize=True)
+            created_count += 1
+            log(f"Created WebP icon: {target_file} ({size}x{size})")
             
-      
-            try:
-                # Standard launcher icon - PNG
-                target_file_png = dir_path / 'ic_launcher.png'
-                resized.save(target_file_png, format='PNG', optimize=True)
-                created_count += 1
-                log(f"Created PNG icon: {target_file_png}")
-                
-                # Round launcher icon - PNG
-                round_file_png = dir_path / 'ic_launcher_round.png'
-                resized.save(round_file_png, format='PNG', optimize=True)
-                created_count += 1
-                log(f"Created round PNG icon: {round_file_png}")
-                
-            except Exception as png_error:
-                log(f"PNG creation failed for {mipmap}: {png_error}")
+            # Round launcher icon - WebP  
+            round_file = dir_path / 'ic_launcher_round.webp'
+            resized.save(round_file, format='WEBP', quality=95, optimize=True)
+            created_count += 1
+            log(f"Created round WebP icon: {round_file}")
         
-        log(f"Successfully created {created_count} icon files from {icon_source} source")
+        log(f"Successfully created {created_count} WebP icon files from {icon_source} source")
         
-    
+        # Verify icons were created
         log("Verifying icon creation...")
         for mipmap in sizes.keys():
             dir_path = res_dir / mipmap
@@ -349,7 +328,7 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
         
     except Exception as e:
         log(f"ERROR during icon creation: {e}")
-    
+        # Don't fail the entire build if icons fail
 
 def main():
     log("=" * 60)
@@ -357,7 +336,7 @@ def main():
     log("=" * 60)
     
     try:
-     
+        # Read all environment variables
         build_id = os.getenv('BUILD_ID', 'local')
         host_name = read_env_or_fail('HOST_NAME')
         app_name = read_env_or_fail('APP_NAME')
@@ -366,7 +345,7 @@ def main():
         theme_color = os.getenv('THEME_COLOR', '#171717')
         theme_color_dark = os.getenv('THEME_COLOR_DARK', '#000000')
         background_color = os.getenv('BACKGROUND_COLOR', '#FFFFFF')
-        icon_choice = os.getenv('ICON_CHOICE', 'phone')  # Default 
+        icon_choice = os.getenv('ICON_CHOICE', 'phone')  # Default to phone icon
         icon_base64 = os.getenv('ICON_BASE64')
 
         log(f"Build ID: {build_id}")
@@ -380,10 +359,10 @@ def main():
         log(f"Icon Choice: {icon_choice}")
         log(f"Icon Base64 provided: {'Yes' if icon_base64 else 'No'}")
 
-       
+        # Validate app directory
         app_dir = Path('android-project/app')
         if not app_dir.exists():
-          
+            # Try alternative paths
             alternative_paths = ['app', './app', '../app']
             for path in alternative_paths:
                 if Path(path).exists():
@@ -403,11 +382,11 @@ def main():
         
         log(f"Using app directory: {app_dir.resolve()}")
 
-    
+        # Generate package name
         package_name = generate_package_name(host_name)
         log("=" * 60)
 
-      
+        # Update build.gradle
         build_gradle = app_dir / 'build.gradle'
         log("Updating build.gradle with configuration...")
         if not update_twa_manifest_in_gradle(
@@ -417,21 +396,22 @@ def main():
             log("WARNING: Failed to update build.gradle")
             return 1
 
-     
+        # Manifest cleanup
         manifest_path = main_dir / 'AndroidManifest.xml'
         if not update_manifest_remove_package(manifest_path):
             log("WARNING: Failed to update AndroidManifest.xml")
 
-    
+        # Update strings.xml with custom app name and URL
         log("Updating strings.xml with custom app name and URL...")
         if not update_strings_xml(app_dir, app_name, host_name, launch_url):
             log("WARNING: Failed to update strings.xml")
 
-
+        # Update Java/Kotlin source files with new package
         log("Updating Java/Kotlin source files with new package...")
-        old_package = "com.example.githubactionapks"  
+        old_package = "com.example.githubactionapks"  # Default package from template
         update_java_kotlin_package(app_dir, old_package, package_name)
 
+        # Handle icons
         log("Setting up launcher icons...")
         set_launcher_icons(app_dir, icon_choice, icon_base64)
 
