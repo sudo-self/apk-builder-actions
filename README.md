@@ -18,6 +18,7 @@ curl -X POST \
       "themeColorDark": "#1976D2",
       "backgroundColor": "#FFFFFF",
       "iconChoice": "phone",
+      "repoName": "ai-apk", 
       "createRelease": "true"
     }
   }'
