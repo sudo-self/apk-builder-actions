@@ -21,8 +21,8 @@ def read_env_or_fail(key, default=None):
     return value
 
 def generate_package_name(host_name: str):
-    """Generate a valid Android package name from host name."""
-    # Clean the host name more thoroughly
+    """Generate Android package name from host name."""
+ 
     clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '')
     clean_host = clean_host.split('/')[0].split('?')[0].split(':')[0]
     
@@ -37,12 +37,12 @@ def generate_package_name(host_name: str):
     for segment in package_name.split('.'):
         if segment and segment[0].isdigit():
             segment = 'a' + segment
-        # Only allow valid package name characters
+       
         segment = re.sub(r'[^a-zA-Z0-9_]', '', segment)
         if segment:
             segments.append(segment)
     
-    # Ensure we have at least 2 segments
+ 
     if len(segments) < 2:
         segments = ['com', 'webapp'] + segments
     
@@ -242,7 +242,7 @@ def download_icon_from_url(icon_url: str):
     return None
 
 def clean_existing_icons(res_dir: Path):
-    """Remove all existing launcher icons to avoid duplicates."""
+    """Remove all existing launcher icons to avoid duplicates - FIXED VERSION."""
     mipmap_dirs = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']
     
     cleaned_count = 0
@@ -250,9 +250,9 @@ def clean_existing_icons(res_dir: Path):
     for mipmap_dir in mipmap_dirs:
         dir_path = res_dir / mipmap_dir
         if dir_path.exists():
-            # Remove ALL files in the mipmap directory that start with 'ic_launcher'
+            # Remove ALL icon files in the mipmap directory
             for file_path in dir_path.iterdir():
-                if file_path.is_file() and file_path.name.startswith('ic_launcher'):
+                if file_path.is_file() and any(name in file_path.name for name in ['ic_launcher', 'ic_foreground']):
                     try:
                         file_path.unlink()
                         cleaned_count += 1
@@ -264,13 +264,17 @@ def clean_existing_icons(res_dir: Path):
     return cleaned_count
 
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
-    """Replace launcher icons with selected icon."""
+    """Replace launcher icons with selected icon - FIXED VERSION."""
     res_dir = app_dir / 'src/main/res'
+    
+    if not res_dir.exists():
+        log(f"ERROR: Resources directory not found at {res_dir}")
+        return
     
     # Clean existing icons first to avoid duplicates
     clean_existing_icons(res_dir)
     
-    # Icon URLs based on choice
+    # Icon URLs based on choice - FIXED URLs
     icon_urls = {
         "phone": "https://apk.jessejesse.com/phone-512.png",
         "castle": "https://apk.jessejesse.com/castle-512.png", 
@@ -279,30 +283,40 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
     
     # Determine which icon to use
     img = None
+    icon_source = "default"
     
+    # Try base64 icon first
     if icon_base64:
-        log("Using provided base64 icon")
+        log("Attempting to use provided base64 icon")
         try:
             icon_data = base64.b64decode(icon_base64)
             img = Image.open(io.BytesIO(icon_data))
+            icon_source = "base64"
+            log("Successfully loaded base64 icon")
         except Exception as e:
             log(f"ERROR decoding base64 icon: {e}")
             img = None
     
+    # Try downloaded icon if base64 failed
     if img is None and icon_choice and icon_choice in icon_urls:
-        log(f"Downloading icon: {icon_choice}")
-        icon_data = download_icon_from_url(icon_urls[icon_choice])
+        icon_url = icon_urls[icon_choice]
+        log(f"Downloading icon: {icon_choice} from {icon_url}")
+        icon_data = download_icon_from_url(icon_url)
         if icon_data:
             try:
                 img = Image.open(io.BytesIO(icon_data))
+                icon_source = "downloaded"
+                log("Successfully loaded downloaded icon")
             except Exception as e:
                 log(f"ERROR processing downloaded icon: {e}")
+                img = None
     
+    # Fallback to default template behavior
     if img is None:
-        log("No custom icon available - using default template icons")
+        log("No custom icon available - icons will use template defaults")
         return
     
-    # Create different size icons for Android
+    # Create different size icons for Android - FIXED sizes
     sizes = {
         'mipmap-mdpi': 48,
         'mipmap-hdpi': 72, 
@@ -313,23 +327,30 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
     
     created_count = 0
     
-    # Create ONLY standard launcher icons as PNG files (no round versions)
-    for mipmap, size in sizes.items():
-        try:
+    try:
+        # Create ALL required launcher icon variants
+        for mipmap, size in sizes.items():
             dir_path = res_dir / mipmap
             dir_path.mkdir(parents=True, exist_ok=True)
-            target_file = dir_path / 'ic_launcher.png'
             
-            # Resize image
+            # Create standard launcher icon
+            target_file = dir_path / 'ic_launcher.png'
             resized = img.resize((size, size), Image.Resampling.LANCZOS)
             resized.save(target_file, format='PNG', optimize=True)
             created_count += 1
             log(f"Created icon: {target_file} ({size}x{size})")
             
-        except Exception as e:
-            log(f"ERROR creating {mipmap} icon: {e}")
-    
-    log(f"Successfully created {created_count} icon files")
+            # Also create foreground icon for adaptive icons (Android 8.0+)
+            foreground_file = dir_path / 'ic_launcher_foreground.png'
+            resized.save(foreground_file, format='PNG', optimize=True)
+            created_count += 1
+            log(f"Created foreground icon: {foreground_file}")
+        
+        log(f"Successfully created {created_count} icon files from {icon_source} source")
+        
+    except Exception as e:
+        log(f"ERROR during icon creation: {e}")
+        # Don't fail the entire build if icons fail
 
 def main():
     log("=" * 60)
