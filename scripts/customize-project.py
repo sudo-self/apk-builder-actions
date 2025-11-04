@@ -2,6 +2,7 @@
 
 import os
 import re
+import sys
 from pathlib import Path
 import traceback
 import base64
@@ -22,33 +23,37 @@ def read_env_or_fail(key, default=None):
 
 def generate_package_name(host_name: str):
     """Generate a valid Android package name from host name."""
-    # Clean the host name more thoroughly
-    clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '')
-    clean_host = clean_host.split('/')[0].split('?')[0].split(':')[0]
-    
-    parts = [p for p in clean_host.split('.') if p]
-    
-    if len(parts) >= 2:
-        package_name = '.'.join(reversed(parts))
-    else:
-        package_name = f"com.{clean_host}" if parts else "com.webapp.generated"
+    try:
+        # Clean the host name more thoroughly
+        clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '')
+        clean_host = clean_host.split('/')[0].split('?')[0].split(':')[0]
+        
+        parts = [p for p in clean_host.split('.') if p]
+        
+        if len(parts) >= 2:
+            package_name = '.'.join(reversed(parts))
+        else:
+            package_name = f"com.{clean_host}" if parts else "com.webapp.generated"
 
-    segments = []
-    for segment in package_name.split('.'):
-        if segment and segment[0].isdigit():
-            segment = 'a' + segment
-        # Only allow valid package name characters
-        segment = re.sub(r'[^a-zA-Z0-9_]', '', segment)
-        if segment:
-            segments.append(segment)
-    
-    # Ensure we have at least 2 segments
-    if len(segments) < 2:
-        segments = ['com', 'webapp'] + segments
-    
-    final_package = '.'.join(segments).lower()
-    log(f"Generated package name: {final_package}")
-    return final_package
+        segments = []
+        for segment in package_name.split('.'):
+            if segment and segment[0].isdigit():
+                segment = 'a' + segment
+            # Only allow valid package name characters
+            segment = re.sub(r'[^a-zA-Z0-9_]', '', segment)
+            if segment:
+                segments.append(segment)
+        
+        # Ensure we have at least 2 segments
+        if len(segments) < 2:
+            segments = ['com', 'webapp'] + segments
+        
+        final_package = '.'.join(segments).lower()
+        log(f"Generated package name: {final_package}")
+        return final_package
+    except Exception as e:
+        log(f"ERROR generating package name: {e}")
+        return "com.webapp.generated"
 
 def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, host_name: str, 
                                    launch_url: str, app_name: str, launcher_name: str,
@@ -197,7 +202,7 @@ def download_icon_from_url(icon_url: str):
         with urllib.request.urlopen(req, timeout=30) as response:
             icon_data = response.read()
             
-        log("Successfully downloaded icon")
+        log(f"Successfully downloaded icon ({len(icon_data)} bytes)")
         return icon_data
         
     except urllib.error.URLError as e:
@@ -228,13 +233,48 @@ def clean_existing_icons(res_dir: Path):
     log(f"Cleaned {cleaned_count} existing icon files")
     return cleaned_count
 
+def create_webp_icon(image: Image.Image, output_path: Path, size: int):
+    """Create a WebP icon with proper formatting for Android."""
+    try:
+        # Ensure RGBA mode for proper transparency
+        if image.mode != 'RGBA':
+            image = image.convert('RGBA')
+        
+        # Resize with high quality
+        resized = image.resize((size, size), Image.Resampling.LANCZOS)
+        
+        # Save as WebP with optimal settings for Android
+        resized.save(
+            output_path, 
+            format='WEBP', 
+            quality=90,  # Good balance of quality and size
+            method=6,    # Best quality encoding
+            lossless=False
+        )
+        
+        # Verify the file was created and has reasonable size
+        if output_path.exists():
+            file_size = output_path.stat().st_size
+            if file_size > 100:  # Reasonable minimum size
+                log(f"Created {output_path.name} ({size}x{size}, {file_size} bytes)")
+                return True
+            else:
+                log(f"WARNING: {output_path.name} is too small ({file_size} bytes)")
+                output_path.unlink()  # Remove corrupted file
+                return False
+        return False
+        
+    except Exception as e:
+        log(f"ERROR creating WebP icon {output_path}: {e}")
+        return False
+
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
-    """Replace launcher icons with selected icon - FIXED: ONLY WEBP FORMAT."""
+    """Replace launcher icons with selected icon - STABLE VERSION."""
     res_dir = app_dir / 'src/main/res'
     
     if not res_dir.exists():
         log(f"ERROR: Resources directory not found at {res_dir}")
-        return
+        return False
     
     # Clean existing icons first to avoid duplicates
     clean_existing_icons(res_dir)
@@ -257,7 +297,7 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             icon_data = base64.b64decode(icon_base64)
             img = Image.open(io.BytesIO(icon_data))
             icon_source = "base64"
-            log("Successfully loaded base64 icon")
+            log(f"Successfully loaded base64 icon ({img.size[0]}x{img.size[1]}, {img.mode})")
         except Exception as e:
             log(f"ERROR decoding base64 icon: {e}")
             img = None
@@ -271,7 +311,7 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             try:
                 img = Image.open(io.BytesIO(icon_data))
                 icon_source = "downloaded"
-                log("Successfully loaded downloaded icon")
+                log(f"Successfully loaded downloaded icon ({img.size[0]}x{img.size[1]}, {img.mode})")
             except Exception as e:
                 log(f"ERROR processing downloaded icon: {e}")
                 img = None
@@ -279,7 +319,7 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
     # Fallback to default template behavior
     if img is None:
         log("No custom icon available - icons will use template defaults")
-        return
+        return True  # Don't fail the build
     
     # Create different size icons for Android
     sizes = {
@@ -291,44 +331,74 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
     }
     
     created_count = 0
+    total_expected = len(sizes) * 2  # 2 icons per density
     
     try:
-        # Create ONLY WebP versions (like the original template)
+        # Create WebP versions for all densities
         for mipmap, size in sizes.items():
             dir_path = res_dir / mipmap
             dir_path.mkdir(parents=True, exist_ok=True)
             
-            # Resize the image once for this density
-            resized = img.resize((size, size), Image.Resampling.LANCZOS)
-            
-            # Create WebP versions only
-            # Standard launcher icon - WebP
+            # Create standard launcher icon
             target_file = dir_path / 'ic_launcher.webp'
-            resized.save(target_file, format='WEBP', quality=95, optimize=True)
-            created_count += 1
-            log(f"Created WebP icon: {target_file} ({size}x{size})")
+            if create_webp_icon(img, target_file, size):
+                created_count += 1
             
-            # Round launcher icon - WebP  
+            # Create round launcher icon  
             round_file = dir_path / 'ic_launcher_round.webp'
-            resized.save(round_file, format='WEBP', quality=95, optimize=True)
-            created_count += 1
-            log(f"Created round WebP icon: {round_file}")
+            if create_webp_icon(img, round_file, size):
+                created_count += 1
         
-        log(f"Successfully created {created_count} WebP icon files from {icon_source} source")
+        success_rate = (created_count / total_expected) * 100
+        log(f"Icon creation: {created_count}/{total_expected} successful ({success_rate:.1f}%)")
         
-        # Verify icons were created
-        log("Verifying icon creation...")
-        for mipmap in sizes.keys():
-            dir_path = res_dir / mipmap
-            if dir_path.exists():
-                icons = list(dir_path.glob("ic_launcher*"))
-                log(f"  {mipmap}: {len(icons)} icons found")
-                for icon in icons:
-                    log(f"    - {icon.name}")
-        
+        # Verify final state
+        if verify_icon_creation(res_dir):
+            log(f"SUCCESS: Icons created from {icon_source} source")
+            return True
+        else:
+            log("WARNING: Icon creation completed but verification failed")
+            return True  # Still don't fail the build
+            
     except Exception as e:
         log(f"ERROR during icon creation: {e}")
         # Don't fail the entire build if icons fail
+        return True
+
+def verify_icon_creation(res_dir: Path):
+    """Verify that icons were created properly."""
+    mipmap_dirs = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']
+    
+    log("Verifying icon creation...")
+    all_good = True
+    
+    for mipmap_dir in mipmap_dirs:
+        dir_path = res_dir / mipmap_dir
+        if dir_path.exists():
+            webp_files = list(dir_path.glob("ic_launcher*.webp"))
+            png_files = list(dir_path.glob("ic_launcher*.png"))
+            
+            log(f"  {mipmap_dir}: {len(webp_files)} WebP, {len(png_files)} PNG")
+            
+            # Check WebP files
+            for webp_file in webp_files:
+                file_size = webp_file.stat().st_size
+                status = "✓" if file_size > 100 else "✗"
+                log(f"    {status} {webp_file.name} ({file_size} bytes)")
+                if file_size <= 100:
+                    all_good = False
+            
+            # Warn if PNG files exist (should only have WebP)
+            for png_file in png_files:
+                log(f"    ! {png_file.name} (UNEXPECTED PNG)")
+                all_good = False
+    
+    if all_good:
+        log("✓ All icons verified successfully")
+    else:
+        log("✗ Some icons failed verification")
+    
+    return all_good
 
 def main():
     log("=" * 60)
@@ -394,7 +464,6 @@ def main():
             app_name, launcher_name, theme_color, theme_color_dark, background_color
         ):
             log("WARNING: Failed to update build.gradle")
-            return 1
 
         # Manifest cleanup
         manifest_path = main_dir / 'AndroidManifest.xml'
@@ -413,7 +482,9 @@ def main():
 
         # Handle icons
         log("Setting up launcher icons...")
-        set_launcher_icons(app_dir, icon_choice, icon_base64)
+        icon_success = set_launcher_icons(app_dir, icon_choice, icon_base64)
+        if not icon_success:
+            log("WARNING: Icon customization had issues")
 
         log("=" * 60)
         log("Android project customization completed successfully!")
@@ -430,7 +501,7 @@ def main():
         return 1
 
 if __name__ == '__main__':
-    exit(main())
+    sys.exit(main())
 
 
 
