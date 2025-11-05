@@ -24,11 +24,9 @@
 
 ## Available Icons
 
-`phone`, `rocket`, `star`, `fire`, `lightning`, `globe`, `laptop`, `heart`, `castle`
+`phone`, `smile`,  `castle`
 
-The built APK will be available as a downloadable artifact in the GitHub Actions run.<hr>
-
-### Basic apk published to repo
+### Basic apk
 
 ```
 curl -X POST \
@@ -45,13 +43,9 @@ curl -X POST \
       "themeColor": "#2196F3",
       "themeColorDark": "#1976D2",
       "backgroundColor": "#FFFFFF",
-      "iconChoice": "phone",
-      "repoName": "ai-apk", 
-      "createRelease": "true"
+      "iconChoice": "phone"
     }
   }'
-
-
 ```
 
 ### custom icon
@@ -71,9 +65,7 @@ curl -X POST \
       "themeColor": "#8B4513",
       "themeColorDark": "#654321",
       "backgroundColor": "#F5F5DC",
-      "iconChoice": "castle",
-      "repoName": "castle-app",
-      "createRelease": "true"
+      "iconChoice": "castle"
     }
   }'
 
