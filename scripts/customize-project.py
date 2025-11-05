@@ -21,7 +21,6 @@ def read_env_or_fail(key, default=None):
     return value
 
 def generate_package_name(host_name: str):
-    """Generate a valid Android package name from host name."""
     try:
         clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '')
         clean_host = clean_host.split('/')[0].split('?')[0].split(':')[0]
@@ -54,7 +53,6 @@ def generate_package_name(host_name: str):
 def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, host_name: str, 
                                    launch_url: str, app_name: str, launcher_name: str,
                                    theme_color: str, theme_color_dark: str, background_color: str):
-    """Update the build.gradle with app configuration."""
     if not build_gradle_path.exists():
         log(f"ERROR: {build_gradle_path} not found")
         return False
@@ -85,7 +83,6 @@ def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, ho
         return False
 
 def update_manifest_remove_package(manifest_path: Path):
-    """Remove deprecated package attribute from AndroidManifest.xml."""
     if not manifest_path.exists():
         log(f"WARNING: Manifest not found at {manifest_path}")
         return False
@@ -108,7 +105,6 @@ def update_manifest_remove_package(manifest_path: Path):
         return False
 
 def update_strings_xml(app_dir: Path, app_name: str, host_name: str, launch_url: str):
-    """Update the strings.xml file with custom app name and URL."""
     res_dir = app_dir / 'src/main/res'
     strings_path = res_dir / 'values/strings.xml'
     
@@ -119,7 +115,6 @@ def update_strings_xml(app_dir: Path, app_name: str, host_name: str, launch_url:
     try:
         content = strings_path.read_text()
 
-   
         if launch_url.startswith("http://") or launch_url.startswith("https://"):
             full_url = launch_url
         else:
@@ -148,9 +143,7 @@ def update_strings_xml(app_dir: Path, app_name: str, host_name: str, launch_url:
         log(f"ERROR updating strings.xml: {e}")
         return False
 
-
 def update_java_kotlin_package(app_dir: Path, old_package: str, new_package: str):
-    """Update package references in Java/Kotlin source files."""
     java_dir = app_dir / 'src/main/java'
     
     if not java_dir.exists():
@@ -184,7 +177,6 @@ def update_java_kotlin_package(app_dir: Path, old_package: str, new_package: str
     return updated_count > 0
 
 def download_icon_from_url(icon_url: str):
-    """Download icon from URL using urllib."""
     try:
         log(f"Downloading icon from: {icon_url}")
         
@@ -204,7 +196,6 @@ def download_icon_from_url(icon_url: str):
     return None
 
 def clean_existing_icons(res_dir: Path):
-    """Remove all existing launcher icons."""
     mipmap_dirs = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']
     
     cleaned_count = 0
@@ -224,19 +215,14 @@ def clean_existing_icons(res_dir: Path):
     return cleaned_count
 
 def create_webp_icon(image: Image.Image, output_path: Path, size: int):
-    """Create a WebP icon with proper formatting."""
     try:
-        # Convert to RGBA for proper transparency
         if image.mode != 'RGBA':
             image = image.convert('RGBA')
         
-        # Resize with high quality
         resized = image.resize((size, size), Image.Resampling.LANCZOS)
         
-        # Save as WebP
         resized.save(output_path, format='WEBP', quality=90, method=6)
         
-        # Verify file was created
         if output_path.exists() and output_path.stat().st_size > 100:
             file_size = output_path.stat().st_size
             log(f"Created {output_path.name} ({size}x{size}, {file_size} bytes)")
@@ -250,28 +236,23 @@ def create_webp_icon(image: Image.Image, output_path: Path, size: int):
         return False
 
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
-    """Replace launcher icons with selected icon."""
     res_dir = app_dir / 'src/main/res'
-    
+
     if not res_dir.exists():
         log(f"ERROR: Resources directory not found at {res_dir}")
-        return True  # Don't fail build
-    
-    # Clean existing icons first
+        return True
+
     clean_existing_icons(res_dir)
-    
-    # Icon URLs
+
     icon_urls = {
         "phone": "https://apk.jessejesse.com/phone-512.png",
-        "castle": "https://apk.jessejesse.com/castle-512.png", 
+        "castle": "https://apk.jessejesse.com/castle-512.png",
         "smile": "https://apk.jessejesse.com/smile-512.png"
     }
-    
-    # Determine which icon to use
+
     img = None
     icon_source = "default"
-    
-    # Try base64 icon first
+
     if icon_base64:
         log("Attempting to use provided base64 icon")
         try:
@@ -282,8 +263,7 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
         except Exception as e:
             log(f"ERROR decoding base64 icon: {e}")
             img = None
-    
-    # Try downloaded icon if base64 failed
+
     if img is None and icon_choice and icon_choice in icon_urls:
         icon_url = icon_urls[icon_choice]
         log(f"Downloading icon: {icon_choice} from {icon_url}")
@@ -296,53 +276,65 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             except Exception as e:
                 log(f"ERROR processing downloaded icon: {e}")
                 img = None
-    
-    # Fallback to default template behavior
+
     if img is None:
         log("No custom icon available - using template defaults")
-        return True  # Don't fail build
-    
-    # Create different size icons for Android
+        return True
+
     sizes = {
         'mipmap-mdpi': 48,
-        'mipmap-hdpi': 72, 
+        'mipmap-hdpi': 72,
         'mipmap-xhdpi': 96,
         'mipmap-xxhdpi': 144,
         'mipmap-xxxhdpi': 192
     }
-    
+
     created_count = 0
-    total_expected = len(sizes) * 2  # 2 icons per density
-    
+    total_expected = len(sizes) * 2 + 2
+
     try:
-        # Create WebP versions for all densities
         for mipmap, size in sizes.items():
             dir_path = res_dir / mipmap
             dir_path.mkdir(parents=True, exist_ok=True)
-            
-            # Create standard launcher icon
+
             target_file = dir_path / 'ic_launcher.webp'
             if create_webp_icon(img, target_file, size):
                 created_count += 1
-            
-            # Create round launcher icon  
+
             round_file = dir_path / 'ic_launcher_round.webp'
             if create_webp_icon(img, round_file, size):
                 created_count += 1
-        
+
+        adaptive_xml_mdpi = res_dir / 'mipmap-anydpi-v26/ic_launcher.xml'
+        adaptive_round_xml_mdpi = res_dir / 'mipmap-anydpi-v26/ic_launcher_round.xml'
+        adaptive_xml_mdpi.parent.mkdir(parents=True, exist_ok=True)
+
+        ic_launcher_xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher" />
+</adaptive-icon>"""
+        ic_launcher_round_xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_round" />
+</adaptive-icon>"""
+
+        adaptive_xml_mdpi.write_text(ic_launcher_xml)
+        adaptive_round_xml_mdpi.write_text(ic_launcher_round_xml)
+        created_count += 2
+
         success_rate = (created_count / total_expected) * 100
         log(f"Icon creation: {created_count}/{total_expected} successful ({success_rate:.1f}%)")
-        
-        # Verify final state
+
         verify_icon_creation(res_dir)
         return True
-            
+
     except Exception as e:
         log(f"ERROR during icon creation: {e}")
-        return True  # Don't fail build
+        return True
 
 def verify_icon_creation(res_dir: Path):
-    """Verify that icons were created properly."""
     mipmap_dirs = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']
     
     log("Verifying icon creation...")
@@ -363,7 +355,6 @@ def main():
     log("=" * 60)
     
     try:
-        # Read all environment variables
         build_id = os.getenv('BUILD_ID', 'local')
         host_name = read_env_or_fail('HOST_NAME')
         app_name = read_env_or_fail('APP_NAME')
@@ -386,7 +377,6 @@ def main():
         log(f"Icon Choice: {icon_choice}")
         log(f"Icon Base64 provided: {'Yes' if icon_base64 else 'No'}")
 
-        # Validate app directory
         app_dir = Path('android-project/app')
         if not app_dir.exists():
             alternative_paths = ['app', './app', '../app']
@@ -405,11 +395,9 @@ def main():
         
         log(f"Using app directory: {app_dir.resolve()}")
 
-        # Generate package name
         package_name = generate_package_name(host_name)
         log("=" * 60)
 
-        # Update build.gradle
         build_gradle = app_dir / 'build.gradle'
         log("Updating build.gradle with configuration...")
         update_twa_manifest_in_gradle(
@@ -417,20 +405,16 @@ def main():
             app_name, launcher_name, theme_color, theme_color_dark, background_color
         )
 
-        # Manifest cleanup
         manifest_path = main_dir / 'AndroidManifest.xml'
         update_manifest_remove_package(manifest_path)
 
-        # Update strings.xml with custom app name and URL
         log("Updating strings.xml with custom app name and URL...")
         update_strings_xml(app_dir, app_name, host_name, launch_url)
 
-        # Update Java/Kotlin source files with new package
         log("Updating Java/Kotlin source files with new package...")
         old_package = "com.example.githubactionapks"
         update_java_kotlin_package(app_dir, old_package, package_name)
 
-        # Handle icons
         log("Setting up launcher icons...")
         set_launcher_icons(app_dir, icon_choice, icon_base64)
 
