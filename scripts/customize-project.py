@@ -387,12 +387,18 @@ def main():
         log(f"Icon Choice: {icon_choice}")
         log(f"Icon Base64 provided: {'Yes' if icon_base64 else 'No'}")
 
-        # Correct app directory detection
-        app_dir = Path('app')
-        if not app_dir.exists():
-            log(f"ERROR: App directory not found. Checked: {app_dir.resolve()}")
+        # Dynamic app directory detection
+        possible_dirs = [Path('app'), Path('./app'), Path('../app')]
+        app_dir = None
+        for path in possible_dirs:
+            if path.exists():
+                app_dir = path
+                break
+
+        if not app_dir:
+            log(f"ERROR: App directory not found. Checked: {', '.join(str(p.resolve()) for p in possible_dirs)}")
             return 1
-        
+
         main_dir = app_dir / 'src/main'
         if not main_dir.exists():
             log(f"ERROR: src/main not found at {main_dir.resolve()}")
@@ -439,6 +445,7 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+
 
 
 
