@@ -349,7 +349,6 @@ def verify_icon_creation(res_dir: Path):
                 status = "✓" if file_size > 100 else "✗"
                 log(f"    {status} {webp_file.name} ({file_size} bytes)")
 
-   
     adaptive_dir = res_dir / 'mipmap-anydpi-v26'
     adaptive_files = ['ic_launcher.xml', 'ic_launcher_round.xml']
     log("Verifying adaptive icon XMLs...")
@@ -359,7 +358,6 @@ def verify_icon_creation(res_dir: Path):
             log(f"    ✓ {xml_file} ({path.stat().st_size} bytes)")
         else:
             log(f"    ✗ {xml_file} missing or empty")
-            
 
 def main():
     log("=" * 60)
@@ -389,16 +387,11 @@ def main():
         log(f"Icon Choice: {icon_choice}")
         log(f"Icon Base64 provided: {'Yes' if icon_base64 else 'No'}")
 
-        app_dir = Path('android-project/app')
+        # Correct app directory detection
+        app_dir = Path('app')
         if not app_dir.exists():
-            alternative_paths = ['app', './app', '../app']
-            for path in alternative_paths:
-                if Path(path).exists():
-                    app_dir = Path(path)
-                    break
-            else:
-                log(f"ERROR: App directory not found. Checked: {app_dir.resolve()}")
-                return 1
+            log(f"ERROR: App directory not found. Checked: {app_dir.resolve()}")
+            return 1
         
         main_dir = app_dir / 'src/main'
         if not main_dir.exists():
@@ -446,6 +439,7 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+
 
 
 
