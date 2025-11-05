@@ -10,6 +10,9 @@ from PIL import Image
 import io
 import urllib.request
 import urllib.error
+import subprocess
+import requests
+import json
 
 def log(msg):
     print(f"[CUSTOMIZE] {msg}")
@@ -20,13 +23,15 @@ def read_env_or_fail(key, default=None):
         raise ValueError(f"Required environment variable {key} is not set")
     return value
 
+# -----------------------------
+# Package & Manifest Utilities
+# -----------------------------
 def generate_package_name(host_name: str):
     try:
         clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '')
         clean_host = clean_host.split('/')[0].split('?')[0].split(':')[0]
-        
+
         parts = [p for p in clean_host.split('.') if p]
-        
         if len(parts) >= 2:
             package_name = '.'.join(reversed(parts))
         else:
@@ -39,10 +44,10 @@ def generate_package_name(host_name: str):
             segment = re.sub(r'[^a-zA-Z0-9_]', '', segment)
             if segment:
                 segments.append(segment)
-        
+
         if len(segments) < 2:
             segments = ['com', 'webapp'] + segments
-        
+
         final_package = '.'.join(segments).lower()
         log(f"Generated package name: {final_package}")
         return final_package
@@ -50,34 +55,17 @@ def generate_package_name(host_name: str):
         log(f"ERROR generating package name: {e}")
         return "com.webapp.generated"
 
-def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str, host_name: str, 
-                                   launch_url: str, app_name: str, launcher_name: str,
-                                   theme_color: str, theme_color_dark: str, background_color: str):
+def update_twa_manifest_in_gradle(build_gradle_path: Path, package_name: str):
     if not build_gradle_path.exists():
         log(f"ERROR: {build_gradle_path} not found")
         return False
-    
     try:
         content = build_gradle_path.read_text()
-        
-        content = re.sub(
-            r'namespace\s+["\'].*?["\']',
-            f'namespace "{package_name}"',
-            content
-        )
-        log(f"Set namespace to {package_name}")
-        
-        content = re.sub(
-            r'applicationId\s+["\'].*?["\']',
-            f'applicationId "{package_name}"',
-            content
-        )
-        log(f"Set applicationId to {package_name}")
-        
+        content = re.sub(r'namespace\s+["\'].*?["\']', f'namespace "{package_name}"', content)
+        content = re.sub(r'applicationId\s+["\'].*?["\']', f'applicationId "{package_name}"', content)
         build_gradle_path.write_text(content)
-        log(f"Successfully updated {build_gradle_path}")
+        log(f"Updated build.gradle with package {package_name}")
         return True
-        
     except Exception as e:
         log(f"ERROR updating build.gradle: {e}")
         return False
@@ -86,20 +74,13 @@ def update_manifest_remove_package(manifest_path: Path):
     if not manifest_path.exists():
         log(f"WARNING: Manifest not found at {manifest_path}")
         return False
-    
     try:
         content = manifest_path.read_text()
-        original_content = content
-        content = re.sub(r'\s*package="[^"]*"', '', content)
-        
-        if content != original_content:
-            manifest_path.write_text(content)
+        new_content = re.sub(r'\s*package="[^"]*"', '', content)
+        if new_content != content:
+            manifest_path.write_text(new_content)
             log("Removed deprecated package attribute from AndroidManifest.xml")
-        else:
-            log("No package attribute found in manifest (already clean)")
-        
         return True
-        
     except Exception as e:
         log(f"ERROR updating manifest: {e}")
         return False
@@ -107,141 +88,96 @@ def update_manifest_remove_package(manifest_path: Path):
 def update_strings_xml(app_dir: Path, app_name: str, host_name: str, launch_url: str):
     res_dir = app_dir / 'src/main/res'
     strings_path = res_dir / 'values/strings.xml'
-    
     if not strings_path.exists():
         log(f"ERROR: strings.xml not found at {strings_path}")
         return False
-    
     try:
         content = strings_path.read_text()
-
-        if launch_url.startswith("http://") or launch_url.startswith("https://"):
-            full_url = launch_url
-        else:
-            host_name_clean = host_name.replace("https://", "").replace("http://", "")
+        if not launch_url.startswith("http"):
             if not launch_url.startswith("/"):
                 launch_url = "/" + launch_url
-            full_url = f"https://{host_name_clean}{launch_url}"
-        
-        old_app_name_match = re.search(r'<string name="app_name">([^<]*)</string>', content)
-        if old_app_name_match:
-            old_app_name = old_app_name_match.group(1)
-            content = content.replace(f'<string name="app_name">{old_app_name}</string>', f'<string name="app_name">{app_name}</string>')
-            log(f"Updated app_name from '{old_app_name}' to '{app_name}'")
-        
-        old_url_match = re.search(r'<string name="launch_url">([^<]*)</string>', content)
-        if old_url_match:
-            old_url = old_url_match.group(1)
-            content = content.replace(f'<string name="launch_url">{old_url}</string>', f'<string name="launch_url">{full_url}</string>')
-            log(f"Updated launch_url from '{old_url}' to '{full_url}'")
-        
+            host_clean = host_name.replace("https://", "").replace("http://", "")
+            launch_url = f"https://{host_clean}{launch_url}"
+
+        content = re.sub(r'<string name="app_name">[^<]*</string>', f'<string name="app_name">{app_name}</string>', content)
+        content = re.sub(r'<string name="launch_url">[^<]*</string>', f'<string name="launch_url">{launch_url}</string>', content)
         strings_path.write_text(content)
-        log("Successfully updated strings.xml")
+        log("Updated strings.xml")
         return True
-        
     except Exception as e:
         log(f"ERROR updating strings.xml: {e}")
         return False
 
 def update_java_kotlin_package(app_dir: Path, old_package: str, new_package: str):
     java_dir = app_dir / 'src/main/java'
-    
     if not java_dir.exists():
         log(f"WARNING: Java source directory not found at {java_dir}")
         return False
-    
     source_files = list(java_dir.rglob('*.java')) + list(java_dir.rglob('*.kt'))
-    
     updated_count = 0
-    for source_file in source_files:
+    for f in source_files:
         try:
-            content = source_file.read_text()
-            
+            content = f.read_text()
             if f"package {old_package}" in content:
                 content = content.replace(f"package {old_package}", f"package {new_package}")
                 updated_count += 1
-                log(f"Updated package in: {source_file}")
-            
-            content = re.sub(
-                fr'import {re.escape(old_package)}',
-                f'import {new_package}',
-                content
-            )
-            
-            source_file.write_text(content)
-            
+            content = re.sub(fr'import {re.escape(old_package)}', f'import {new_package}', content)
+            f.write_text(content)
         except Exception as e:
-            log(f"ERROR updating {source_file}: {e}")
-    
+            log(f"ERROR updating {f}: {e}")
     log(f"Updated package references in {updated_count} source files")
     return updated_count > 0
 
+# -----------------------------
+# Icon Utilities
+# -----------------------------
 def download_icon_from_url(icon_url: str):
     try:
         log(f"Downloading icon from: {icon_url}")
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0'}
         req = urllib.request.Request(icon_url, headers=headers)
-        
         with urllib.request.urlopen(req, timeout=30) as response:
-            icon_data = response.read()
-            
-        log(f"Successfully downloaded icon ({len(icon_data)} bytes)")
-        return icon_data
-        
+            data = response.read()
+        log(f"Downloaded icon ({len(data)} bytes)")
+        return data
     except Exception as e:
         log(f"ERROR downloading icon: {e}")
-    return None
+        return None
 
 def clean_existing_icons(res_dir: Path):
-    mipmap_dirs = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']
-    
-    cleaned_count = 0
-    for mipmap_dir in mipmap_dirs:
-        dir_path = res_dir / mipmap_dir
-        if dir_path.exists():
-            for file_path in dir_path.iterdir():
-                if file_path.is_file() and any(name in file_path.name for name in ['ic_launcher', 'ic_foreground']):
+    mipmaps = ['mipmap-mdpi','mipmap-hdpi','mipmap-xhdpi','mipmap-xxhdpi','mipmap-xxxhdpi']
+    count = 0
+    for m in mipmaps:
+        d = res_dir / m
+        if d.exists():
+            for f in d.iterdir():
+                if f.is_file() and any(name in f.name for name in ['ic_launcher','ic_foreground']):
                     try:
-                        file_path.unlink()
-                        cleaned_count += 1
-                        log(f"Removed existing icon: {file_path}")
-                    except Exception as e:
-                        log(f"ERROR removing {file_path}: {e}")
-    
-    log(f"Cleaned {cleaned_count} existing icon files")
-    return cleaned_count
+                        f.unlink()
+                        count +=1
+                        log(f"Removed {f}")
+                    except: pass
+    log(f"Cleaned {count} existing icons")
+    return count
 
 def create_webp_icon(image: Image.Image, output_path: Path, size: int):
     try:
         if image.mode != 'RGBA':
             image = image.convert('RGBA')
-        
-        resized = image.resize((size, size), Image.Resampling.LANCZOS)
-        
-        resized.save(output_path, format='WEBP', quality=90, method=6)
-        
+        image.resize((size, size), Image.Resampling.LANCZOS).save(output_path, format='WEBP', quality=90, method=6)
         if output_path.exists() and output_path.stat().st_size > 100:
-            file_size = output_path.stat().st_size
-            log(f"Created {output_path.name} ({size}x{size}, {file_size} bytes)")
+            log(f"Created {output_path.name} ({size}x{size})")
             return True
-        else:
-            log(f"WARNING: {output_path.name} creation failed")
-            return False
-            
+        return False
     except Exception as e:
         log(f"ERROR creating WebP icon {output_path}: {e}")
         return False
 
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
     res_dir = app_dir / 'src/main/res'
-
     if not res_dir.exists():
         log(f"ERROR: Resources directory not found at {res_dir}")
         return True
-
     clean_existing_icons(res_dir)
 
     icon_urls = {
@@ -251,130 +187,94 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
     }
 
     img = None
-    icon_source = "default"
-
     if icon_base64:
-        log("Attempting to use provided base64 icon")
         try:
-            icon_data = base64.b64decode(icon_base64)
-            img = Image.open(io.BytesIO(icon_data))
-            icon_source = "base64"
-            log(f"Successfully loaded base64 icon ({img.size[0]}x{img.size[1]})")
+            img = Image.open(io.BytesIO(base64.b64decode(icon_base64)))
+            log(f"Loaded base64 icon ({img.size[0]}x{img.size[1]})")
         except Exception as e:
             log(f"ERROR decoding base64 icon: {e}")
-            img = None
 
-    if img is None and icon_choice and icon_choice in icon_urls:
-        icon_url = icon_urls[icon_choice]
-        log(f"Downloading icon: {icon_choice} from {icon_url}")
-        icon_data = download_icon_from_url(icon_url)
-        if icon_data:
+    if img is None and icon_choice in icon_urls:
+        data = download_icon_from_url(icon_urls[icon_choice])
+        if data:
             try:
-                img = Image.open(io.BytesIO(icon_data))
-                icon_source = "downloaded"
-                log(f"Successfully loaded downloaded icon ({img.size[0]}x{img.size[1]})")
+                img = Image.open(io.BytesIO(data))
+                log(f"Loaded downloaded icon ({img.size[0]}x{img.size[1]})")
             except Exception as e:
-                log(f"ERROR processing downloaded icon: {e}")
-                img = None
+                log(f"ERROR loading downloaded icon: {e}")
 
     if img is None:
-        log("No custom icon available - using template defaults")
+        log("No icon available; using default template")
         return True
 
-    sizes = {
-        'mipmap-mdpi': 48,
-        'mipmap-hdpi': 72,
-        'mipmap-xhdpi': 96,
-        'mipmap-xxhdpi': 144,
-        'mipmap-xxxhdpi': 192
-    }
-
+    sizes = {'mipmap-mdpi':48,'mipmap-hdpi':72,'mipmap-xhdpi':96,'mipmap-xxhdpi':144,'mipmap-xxxhdpi':192}
+    total_expected = len(sizes)*2+2
     created_count = 0
-    total_expected = len(sizes) * 2 + 2
-
     try:
-        for mipmap, size in sizes.items():
+        for mipmap,size in sizes.items():
             dir_path = res_dir / mipmap
             dir_path.mkdir(parents=True, exist_ok=True)
+            if create_webp_icon(img, dir_path/'ic_launcher.webp', size): created_count+=1
+            if create_webp_icon(img, dir_path/'ic_launcher_round.webp', size): created_count+=1
 
-            target_file = dir_path / 'ic_launcher.webp'
-            if create_webp_icon(img, target_file, size):
-                created_count += 1
-
-            round_file = dir_path / 'ic_launcher_round.webp'
-            if create_webp_icon(img, round_file, size):
-                created_count += 1
-
-        adaptive_xml_mdpi = res_dir / 'mipmap-anydpi-v26/ic_launcher.xml'
-        adaptive_round_xml_mdpi = res_dir / 'mipmap-anydpi-v26/ic_launcher_round.xml'
-        adaptive_xml_mdpi.parent.mkdir(parents=True, exist_ok=True)
-
-        ic_launcher_xml = f"""<?xml version="1.0" encoding="utf-8"?>
+        # adaptive icon XML
+        xml_dir = res_dir / 'mipmap-anydpi-v26'
+        xml_dir.mkdir(parents=True, exist_ok=True)
+        xml_content = """<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background" />
-    <foreground android:drawable="@mipmap/ic_launcher" />
+    <background android:drawable="@drawable/ic_launcher_background"/>
+    <foreground android:drawable="@mipmap/ic_launcher"/>
 </adaptive-icon>"""
-        ic_launcher_round_xml = f"""<?xml version="1.0" encoding="utf-8"?>
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background" />
-    <foreground android:drawable="@mipmap/ic_launcher_round" />
-</adaptive-icon>"""
+        xml_round = xml_content.replace('ic_launcher', 'ic_launcher_round')
+        (xml_dir/'ic_launcher.xml').write_text(xml_content)
+        (xml_dir/'ic_launcher_round.xml').write_text(xml_round)
+        created_count +=2
 
-        adaptive_xml_mdpi.write_text(ic_launcher_xml)
-        adaptive_round_xml_mdpi.write_text(ic_launcher_round_xml)
-        created_count += 2
-
-        success_rate = (created_count / total_expected) * 100
-        log(f"Icon creation: {created_count}/{total_expected} successful ({success_rate:.1f}%)")
-
-        verify_icon_creation(res_dir)
+        log(f"Icon creation: {created_count}/{total_expected} successful")
         return True
-
     except Exception as e:
-        log(f"ERROR during icon creation: {e}")
+        log(f"ERROR creating icons: {e}")
         return True
 
-def verify_icon_creation(res_dir: Path):
-    """Verify that launcher icons and adaptive icon XMLs were created properly."""
-    mipmap_dirs = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']
-    
-    log("Verifying launcher icons...")
-    for mipmap_dir in mipmap_dirs:
-        dir_path = res_dir / mipmap_dir
-        if dir_path.exists():
-            webp_files = list(dir_path.glob("ic_launcher*.webp"))
-            log(f"  {mipmap_dir}: {len(webp_files)} WebP files")
-            for webp_file in webp_files:
-                file_size = webp_file.stat().st_size
-                status = "✓" if file_size > 100 else "✗"
-                log(f"    {status} {webp_file.name} ({file_size} bytes)")
-
-    adaptive_dir = res_dir / 'mipmap-anydpi-v26'
-    adaptive_files = ['ic_launcher.xml', 'ic_launcher_round.xml']
-    log("Verifying adaptive icon XMLs...")
-    for xml_file in adaptive_files:
-        path = adaptive_dir / xml_file
-        if path.exists() and path.stat().st_size > 50:  
-            log(f"    ✓ {xml_file} ({path.stat().st_size} bytes)")
-        else:
-            log(f"    ✗ {xml_file} missing or empty")
-
-def main():
-    log("=" * 60)
-    log("Starting Android project customization...")
-    log("=" * 60)
-    
+# -----------------------------
+# GitHub Release
+# -----------------------------
+def publish_github_release(repo: str, tag: str, token: str, release_name: str, body: str=""):
+    url = f"https://api.github.com/repos/{repo}/releases"
+    headers = {"Authorization": f"token {token}", "Accept":"application/vnd.github+json"}
+    data = {"tag_name": tag, "name": release_name, "body": body, "draft": False, "prerelease": False}
     try:
-        build_id = os.getenv('BUILD_ID', 'local')
+        resp = requests.post(url, headers=headers, json=data)
+        if resp.status_code==201:
+            log(f"Release '{release_name}' published successfully!")
+            return True
+        else:
+            log(f"ERROR publishing release: {resp.status_code} {resp.text}")
+            return False
+    except Exception as e:
+        log(f"ERROR publishing release: {e}")
+        return False
+
+# -----------------------------
+# Main
+# -----------------------------
+def main():
+    log("="*60)
+    log("Starting Android project customization...")
+    log("="*60)
+
+    try:
+        build_id = os.getenv('BUILD_ID','local')
         host_name = read_env_or_fail('HOST_NAME')
         app_name = read_env_or_fail('APP_NAME')
-        launch_url = os.getenv('LAUNCH_URL', '/')
-        launcher_name = os.getenv('LAUNCHER_NAME', app_name)
-        theme_color = os.getenv('THEME_COLOR', '#171717')
-        theme_color_dark = os.getenv('THEME_COLOR_DARK', '#000000')
-        background_color = os.getenv('BACKGROUND_COLOR', '#FFFFFF')
-        icon_choice = os.getenv('ICON_CHOICE', 'phone')
+        launch_url = os.getenv('LAUNCH_URL','/')
+        launcher_name = os.getenv('LAUNCHER_NAME',app_name)
+        theme_color = os.getenv('THEME_COLOR','#171717')
+        theme_color_dark = os.getenv('THEME_COLOR_DARK','#000000')
+        background_color = os.getenv('BACKGROUND_COLOR','#FFFFFF')
+        icon_choice = os.getenv('ICON_CHOICE','phone')
         icon_base64 = os.getenv('ICON_BASE64')
+        publish_release = os.getenv('PUBLISH_RELEASE','false').lower()=='true'
 
         log(f"Build ID: {build_id}")
         log(f"Host: {host_name}")
@@ -382,64 +282,61 @@ def main():
         log(f"Launcher Name: {launcher_name}")
         log(f"Launch URL: {launch_url}")
         log(f"Theme Color: {theme_color}")
-        log(f"Theme Color Dark: {theme_color_dark}") 
+        log(f"Theme Color Dark: {theme_color_dark}")
         log(f"Background Color: {background_color}")
         log(f"Icon Choice: {icon_choice}")
         log(f"Icon Base64 provided: {'Yes' if icon_base64 else 'No'}")
 
-        # --- FIXED: use path relative to script ---
-        script_dir = Path(__file__).parent
-        app_dir = script_dir.parent / "app"
+        # -----------------------------
+        # Ensure /app exists
+        # -----------------------------
+        app_dir = Path('app')
         if not app_dir.exists():
-            log(f"ERROR: App directory not found at {app_dir.resolve()}")
+            log("App directory not found; cloning template_apk...")
+            subprocess.run(['git','clone','https://github.com/sudo-self/template_apk.git','app'], check=True)
+        if not app_dir.exists():
+            log(f"ERROR: App directory still missing at {app_dir.resolve()}")
             return 1
-        
-        main_dir = app_dir / 'src/main'
-        if not main_dir.exists():
-            log(f"ERROR: src/main not found at {main_dir.resolve()}")
-            return 1
-        
         log(f"Using app directory: {app_dir.resolve()}")
 
+        # -----------------------------
+        # Customize project
+        # -----------------------------
         package_name = generate_package_name(host_name)
-        log("=" * 60)
-
         build_gradle = app_dir / 'build.gradle'
-        log("Updating build.gradle with configuration...")
-        update_twa_manifest_in_gradle(
-            build_gradle, package_name, host_name, launch_url,
-            app_name, launcher_name, theme_color, theme_color_dark, background_color
-        )
-
-        manifest_path = main_dir / 'AndroidManifest.xml'
+        update_twa_manifest_in_gradle(build_gradle, package_name)
+        manifest_path = app_dir / 'src/main/AndroidManifest.xml'
         update_manifest_remove_package(manifest_path)
-
-        log("Updating strings.xml with custom app name and URL...")
         update_strings_xml(app_dir, app_name, host_name, launch_url)
-
-        log("Updating Java/Kotlin source files with new package...")
         old_package = "com.example.githubactionapks"
         update_java_kotlin_package(app_dir, old_package, package_name)
-
-        log("Setting up launcher icons...")
         set_launcher_icons(app_dir, icon_choice, icon_base64)
 
-        log("=" * 60)
+        # -----------------------------
+        # Optional release
+        # -----------------------------
+        if publish_release:
+            github_repo = read_env_or_fail('GITHUB_REPO')
+            github_token = read_env_or_fail('GITHUB_TOKEN')
+            release_tag = read_env_or_fail('RELEASE_TAG')
+            release_name = os.getenv('RELEASE_NAME', release_tag)
+            release_body = os.getenv('RELEASE_BODY', f"Automated release {release_tag}")
+            log("Publishing GitHub release...")
+            publish_github_release(github_repo, release_tag, github_token, release_name, release_body)
+
+        log("="*60)
         log("Android project customization completed successfully!")
-        log("=" * 60)
+        log("="*60)
         return 0
 
-    except ValueError as e:
-        log(f"ERROR: {e}")
-        return 1
-        
     except Exception as e:
         log(f"UNEXPECTED ERROR: {e}")
         traceback.print_exc()
         return 1
 
-if __name__ == '__main__':
+if __name__=='__main__':
     sys.exit(main())
+
 
 
 
