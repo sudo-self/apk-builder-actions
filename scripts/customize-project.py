@@ -335,19 +335,31 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
         return True
 
 def verify_icon_creation(res_dir: Path):
+    """Verify that launcher icons and adaptive icon XMLs were created properly."""
     mipmap_dirs = ['mipmap-mdpi', 'mipmap-hdpi', 'mipmap-xhdpi', 'mipmap-xxhdpi', 'mipmap-xxxhdpi']
     
-    log("Verifying icon creation...")
+    log("Verifying launcher icons...")
     for mipmap_dir in mipmap_dirs:
         dir_path = res_dir / mipmap_dir
         if dir_path.exists():
             webp_files = list(dir_path.glob("ic_launcher*.webp"))
             log(f"  {mipmap_dir}: {len(webp_files)} WebP files")
-            
             for webp_file in webp_files:
                 file_size = webp_file.stat().st_size
                 status = "✓" if file_size > 100 else "✗"
                 log(f"    {status} {webp_file.name} ({file_size} bytes)")
+
+   
+    adaptive_dir = res_dir / 'mipmap-anydpi-v26'
+    adaptive_files = ['ic_launcher.xml', 'ic_launcher_round.xml']
+    log("Verifying adaptive icon XMLs...")
+    for xml_file in adaptive_files:
+        path = adaptive_dir / xml_file
+        if path.exists() and path.stat().st_size > 50:  
+            log(f"    ✓ {xml_file} ({path.stat().st_size} bytes)")
+        else:
+            log(f"    ✗ {xml_file} missing or empty")
+
 
 def main():
     log("=" * 60)
