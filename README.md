@@ -1,6 +1,6 @@
 # [![APK Builder](https://github.com/sudo-self/apk-builder-actions/actions/workflows/apk-builder.yml/badge.svg)](https://github.com/sudo-self/apk-builder-actions/actions/workflows/apk-builder.yml)<br>
 
-### Basic apk
+### Basic apk published to repo
 
 ```
 curl -X POST \
@@ -23,6 +23,7 @@ curl -X POST \
     }
   }'
 
+
 ```
 
 ### custom icon
@@ -43,6 +44,7 @@ curl -X POST \
       "themeColorDark": "#654321",
       "backgroundColor": "#F5F5DC",
       "iconChoice": "castle",
+      "repoName": "castle-app",
       "createRelease": "true"
     }
   }'
