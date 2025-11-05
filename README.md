@@ -1,5 +1,33 @@
 # [![APK Builder](https://github.com/sudo-self/apk-builder-actions/actions/workflows/apk-builder.yml/badge.svg)](https://github.com/sudo-self/apk-builder-actions/actions/workflows/apk-builder.yml)<br>
 
+## Required Fields
+
+-   `hostName`: Android package name (e.g., com.example.app)
+    
+-   `name`: App display name
+    
+-   `launchUrl`: Website URL to load in the app
+    
+
+## Optional Fields
+
+-   `launcherName`: Short name for app launcher (defaults to `name`)
+    
+-   `themeColor`: Primary color (default: #2196F3)
+    
+-   `themeColorDark`: Dark mode color (default: #1976D2)
+    
+-   `backgroundColor`: Background color (default: #FFFFFF)
+    
+-   `iconChoice`: App icon (default: phone)
+    
+
+## Available Icons
+
+`phone`, `rocket`, `star`, `fire`, `lightning`, `globe`, `laptop`, `heart`, `castle`
+
+The built APK will be available as a downloadable artifact in the GitHub Actions run.<hr>
+
 ### Basic apk published to repo
 
 ```
