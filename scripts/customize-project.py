@@ -359,7 +359,7 @@ def verify_icon_creation(res_dir: Path):
             log(f"    ✓ {xml_file} ({path.stat().st_size} bytes)")
         else:
             log(f"    ✗ {xml_file} missing or empty")
-
+            
 
 def main():
     log("=" * 60)
