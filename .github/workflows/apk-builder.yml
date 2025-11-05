@@ -50,7 +50,7 @@ jobs:
             echo "ERROR: name is required"
             exit 1
           fi
-          if [ -z "${{ github.event.client_payload.repoName }}" ]; then
+          if [ "${{ github.event.client_payload.createRelease }}" = "true" ] && [ -z "${{ github.event.client_payload.repoName }}" ]; then
             echo "ERROR: repoName is required for Release publishing"
             exit 1
           fi
@@ -130,7 +130,7 @@ jobs:
           && sudo apt install gh -y
 
       - name: Create user repo (if needed)
-        if: github.event.client_payload.createRelease == 'true'
+        if: github.event.client_payload.createRelease == 'true' && github.event.client_payload.repoName != ''
         run: |
           REPO_NAME="${{ github.event.client_payload.repoName }}"
           TOKEN="${{ github.event.client_payload.githubToken }}"
@@ -142,7 +142,7 @@ jobs:
           || echo "Repo exists, continuing"
 
       - name: Create Release on user's repo
-        if: github.event.client_payload.createRelease == 'true'
+        if: github.event.client_payload.createRelease == 'true' && github.event.client_payload.repoName != ''
         env:
           GITHUB_TOKEN: ${{ github.event.client_payload.githubToken }}
         run: |
