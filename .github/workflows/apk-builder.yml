@@ -1,4 +1,4 @@
-name: APK yml
+name: APK Builder
 
 on:
   repository_dispatch:
@@ -39,31 +39,22 @@ jobs:
       - name: Clone Android template
         run: git clone https://github.com/sudo-self/template_apk.git android-project
 
-      - name: Verify environment variables
+      - name: Debug - Print received payload
         run: |
-          echo "Checking required environment variables..."
-          if [ -z "${{ github.event.client_payload.hostName }}" ]; then
-            echo "ERROR: hostName is required"
-            exit 1
-          fi
-          if [ -z "${{ github.event.client_payload.name }}" ]; then
-            echo "ERROR: name is required"
-            exit 1
-          fi
-          if [ "${{ github.event.client_payload.createRelease }}" = "true" ] && [ -z "${{ github.event.client_payload.repoName }}" ]; then
-            echo "ERROR: repoName is required for Release publishing"
-            exit 1
-          fi
-          echo "Required variables present"
+          echo "Received payload:"
+          echo "hostName: ${{ github.event.client_payload.hostName }}"
+          echo "name: ${{ github.event.client_payload.name }}"
+          echo "launchUrl: ${{ github.event.client_payload.launchUrl }}"
+          echo "launcherName: ${{ github.event.client_payload.launcherName }}"
+          echo "themeColor: ${{ github.event.client_payload.themeColor }}"
+          echo "themeColorDark: ${{ github.event.client_payload.themeColorDark }}"
+          echo "backgroundColor: ${{ github.event.client_payload.backgroundColor }}"
+          echo "iconChoice: ${{ github.event.client_payload.iconChoice }}"
 
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
-          if [ -f "requirements.txt" ]; then
-            python3 -m pip install -r requirements.txt
-          else
-            python3 -m pip install Pillow
-          fi
+          python3 -m pip install Pillow
 
       - name: Customize Android project
         run: python3 scripts/customize-project.py
@@ -72,10 +63,10 @@ jobs:
           HOST_NAME: ${{ github.event.client_payload.hostName }}
           LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
           APP_NAME: ${{ github.event.client_payload.name }}
-          LAUNCHER_NAME: ${{ github.event.client_payload.launcherName }}
-          THEME_COLOR: ${{ github.event.client_payload.themeColor }}
-          THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark }}
-          BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor }}
+          LAUNCHER_NAME: ${{ github.event.client_payload.launcherName || github.event.client_payload.name }}
+          THEME_COLOR: ${{ github.event.client_payload.themeColor || '#2196F3' }}
+          THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark || '#1976D2' }}
+          BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor || '#FFFFFF' }}
           ICON_CHOICE: ${{ github.event.client_payload.iconChoice || 'phone' }}
 
       - name: Make Gradlew Executable
@@ -91,11 +82,13 @@ jobs:
           APK_FILE=$(find android-project/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
           if [ -z "$APK_FILE" ]; then
             echo "No APK file found"
+            ls -la android-project/app/build/outputs/apk/
             exit 1
           fi
           CLEAN_NAME=$(echo "${{ github.event.client_payload.name }}" | tr -c '[:alnum:]._-' '_')
           OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
           cp "$APK_FILE" "./$OUTPUT_NAME"
+          echo "APK created: $OUTPUT_NAME"
           echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
 
       - name: Verify APK signature
@@ -103,9 +96,11 @@ jobs:
           BUILD_TOOLS_DIR=$(find $ANDROID_HOME/build-tools -maxdepth 1 -type d | sort -V | tail -n1)
           APK_SIGNER="$BUILD_TOOLS_DIR/apksigner"
           if [ -f "$APK_SIGNER" ]; then
+            echo "Verifying APK signature..."
             $APK_SIGNER verify --verbose --print-certs "./${{ env.apk_name }}"
+            echo "APK signature verified"
           else
-            echo "apksigner not found, skipping"
+            echo "apksigner not found, skipping signature verification"
           fi
 
       - name: Upload Artifact
@@ -115,41 +110,14 @@ jobs:
           path: ./${{ env.apk_name }}
           retention-days: 30
 
-      ##############################################
-      # CREATE RELEASE ON USER'S ACCOUNT (OPTIONAL)
-      ##############################################
-
-      - name: Install GitHub CLI
-        if: github.event.client_payload.createRelease == 'true'
+      - name: Build Summary
         run: |
-          type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-          && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-          && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-          && sudo apt update \
-          && sudo apt install gh -y
-
-      - name: Create user repo (if needed)
-        if: github.event.client_payload.createRelease == 'true' && github.event.client_payload.repoName != ''
-        run: |
-          REPO_NAME="${{ github.event.client_payload.repoName }}"
-          TOKEN="${{ github.event.client_payload.githubToken }}"
-          curl -s -X POST \
-            -H "Authorization: token $TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/user/repos \
-            -d "{\"name\": \"$REPO_NAME\"}" \
-          || echo "Repo exists, continuing"
-
-      - name: Create Release on user's repo
-        if: github.event.client_payload.createRelease == 'true' && github.event.client_payload.repoName != ''
-        env:
-          GITHUB_TOKEN: ${{ github.event.client_payload.githubToken }}
-        run: |
-          REPO_NAME="${{ github.event.client_payload.repoName }}"
-          TAG="v1.${{ github.run_number }}"
-          USER_LOGIN=$(gh api user --jq .login)
-          gh release create "$TAG" "./${{ env.apk_name }}" \
-            --repo "$USER_LOGIN/$REPO_NAME" \
-            --title "${{ github.event.client_payload.name }} v1.${{ github.run_number }}" \
-            --notes "Auto-generated APK build #${{ github.run_number }}"
+          echo "=========================================="
+          echo "APK BUILD COMPLETED SUCCESSFULLY!"
+          echo "=========================================="
+          echo "App: ${{ github.event.client_payload.name }}"
+          echo "Package: ${{ github.event.client_payload.hostName }}"
+          echo "URL: ${{ github.event.client_payload.launchUrl }}"
+          echo "APK: ${{ env.apk_name }}"
+          echo "Download from: Artifacts section"
+          echo "=========================================="
