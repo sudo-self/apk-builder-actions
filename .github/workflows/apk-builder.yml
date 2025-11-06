@@ -50,11 +50,12 @@ jobs:
           echo "themeColorDark: ${{ github.event.client_payload.themeColorDark }}"
           echo "backgroundColor: ${{ github.event.client_payload.backgroundColor }}"
           echo "iconChoice: ${{ github.event.client_payload.iconChoice }}"
+          echo "publishRelease: ${{ github.event.client_payload.publishRelease }}"
 
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install Pillow
+          pip install -r scripts/requirements.txt
 
       - name: Customize Android project
         run: python3 scripts/customize-project.py
@@ -68,6 +69,10 @@ jobs:
           THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark || '#1976D2' }}
           BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor || '#FFFFFF' }}
           ICON_CHOICE: ${{ github.event.client_payload.iconChoice || 'phone' }}
+          PUBLISH_RELEASE: ${{ github.event.client_payload.publishRelease || 'false' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.run_number }}
 
       - name: Make Gradlew Executable
         run: chmod +x android-project/gradlew
@@ -121,3 +126,4 @@ jobs:
           echo "APK: ${{ env.apk_name }}"
           echo "Download from: Artifacts section"
           echo "=========================================="
+
