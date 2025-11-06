@@ -287,9 +287,7 @@ def main():
         log(f"Icon Choice: {icon_choice}")
         log(f"Icon Base64 provided: {'Yes' if icon_base64 else 'No'}")
 
-        # -----------------------------
         # Ensure /app exists
-        # -----------------------------
         app_dir = Path('app')
         if not app_dir.exists():
             log("App directory not found; cloning template_apk...")
@@ -299,9 +297,7 @@ def main():
             return 1
         log(f"Using app directory: {app_dir.resolve()}")
 
-        # -----------------------------
         # Customize project
-        # -----------------------------
         package_name = generate_package_name(host_name)
         build_gradle = app_dir / 'build.gradle'
         update_twa_manifest_in_gradle(build_gradle, package_name)
@@ -312,9 +308,7 @@ def main():
         update_java_kotlin_package(app_dir, old_package, package_name)
         set_launcher_icons(app_dir, icon_choice, icon_base64)
 
-        # -----------------------------
         # Optional release
-        # -----------------------------
         if publish_release:
             github_repo = read_env_or_fail('GITHUB_REPO')
             github_token = read_env_or_fail('GITHUB_TOKEN')
@@ -336,6 +330,7 @@ def main():
 
 if __name__=='__main__':
     sys.exit(main())
+
 
 
 
