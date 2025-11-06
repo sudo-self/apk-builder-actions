@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 import traceback
 import base64
-from PIL import Image, ImageDraw
+from PIL import Image
 import io
 import urllib.request
 import subprocess
@@ -86,7 +86,7 @@ def update_manifest_remove_package(manifest_path: Path):
         return False
 
 def update_strings_xml(app_dir: Path, app_name: str, host_name: str, launch_url: str):
-    res_dir = app_dir / 'src/main/res'
+    res_dir = app_dir / 'app/src/main/res'
     strings_path = res_dir / 'values/strings.xml'
     if not strings_path.exists():
         log(f"ERROR: strings.xml not found at {strings_path}")
@@ -109,7 +109,7 @@ def update_strings_xml(app_dir: Path, app_name: str, host_name: str, launch_url:
         return False
 
 def update_java_kotlin_package(app_dir: Path, old_package: str, new_package: str):
-    java_dir = app_dir / 'src/main/java'
+    java_dir = app_dir / 'app/src/main/java'
     if not java_dir.exists():
         log(f"WARNING: Java source directory not found at {java_dir}")
         return False
@@ -173,14 +173,8 @@ def create_webp_icon(image: Image.Image, output_path: Path, size: int):
         log(f"ERROR creating WebP icon {output_path}: {e}")
         return False
 
-def generate_placeholder_icon(size=512):
-    img = Image.new('RGBA', (size, size), (50, 50, 50, 255))
-    draw = ImageDraw.Draw(img)
-    draw.text((size//4, size//2 - 20), "APP", fill=(200, 200, 200, 255))
-    return img
-
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
-    res_dir = app_dir / 'src/main/res'
+    res_dir = app_dir / 'app/src/main/res'
     if not res_dir.exists():
         log(f"ERROR: Resources directory not found at {res_dir}")
         return True
@@ -210,8 +204,8 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
                 log(f"ERROR loading downloaded icon: {e}")
 
     if img is None:
-        log("No icon available; generating placeholder icon")
-        img = generate_placeholder_icon()
+        log("No icon available; using default template")
+        return True
 
     sizes = {'mipmap-mdpi':48,'mipmap-hdpi':72,'mipmap-xhdpi':96,'mipmap-xxhdpi':144,'mipmap-xxxhdpi':192}
     total_expected = len(sizes)*2+2
@@ -235,13 +229,12 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
         (xml_dir/'ic_launcher_round.xml').write_text(xml_round)
         created_count +=2
 
-        # CREATE BACKGROUND DRAWABLES
+        # CREATE MISSING BACKGROUND DRAWABLES
         drawable_dir = res_dir / 'drawable'
         drawable_dir.mkdir(parents=True, exist_ok=True)
-        bg_color = os.getenv('BACKGROUND_COLOR','#FFFFFF')
         bg_content = f"""<?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="{bg_color}"/>
+    <solid android:color="{os.getenv('BACKGROUND_COLOR','#FFFFFF')}"/>
 </shape>"""
         (drawable_dir / 'ic_launcher_background.xml').write_text(bg_content)
         (drawable_dir / 'ic_launcher_round_background.xml').write_text(bg_content)
@@ -311,9 +304,9 @@ def main():
             subprocess.run(['git','clone','https://github.com/sudo-self/template_apk.git', str(app_dir)], check=True)
 
         package_name = generate_package_name(host_name)
-        build_gradle = app_dir / 'build.gradle'
+        build_gradle = app_dir / 'app/build.gradle'
         update_twa_manifest_in_gradle(build_gradle, package_name)
-        manifest_path = app_dir / 'src/main/AndroidManifest.xml'
+        manifest_path = app_dir / 'app/src/main/AndroidManifest.xml'
         update_manifest_remove_package(manifest_path)
         update_strings_xml(app_dir, app_name, host_name, launch_url)
         old_package = "com.example.githubactionapks"
@@ -341,6 +334,7 @@ def main():
 
 if __name__=='__main__':
     sys.exit(main())
+
 
 
 
