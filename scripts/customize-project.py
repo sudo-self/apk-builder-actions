@@ -9,10 +9,8 @@ import base64
 from PIL import Image
 import io
 import urllib.request
-import urllib.error
 import subprocess
 import requests
-import json
 
 def log(msg):
     print(f"[CUSTOMIZE] {msg}")
@@ -273,7 +271,8 @@ def main():
         icon_choice = os.getenv('ICON_CHOICE','phone')
         icon_base64 = os.getenv('ICON_BASE64')
         publish_release = os.getenv('PUBLISH_RELEASE','false').lower()=='true'
-        app_dir = Path(os.getenv('APP_DIR', 'android-project'))
+        # FIX: point to actual app folder
+        app_dir = Path(os.getenv('APP_DIR', 'android-project/app'))
 
         log(f"Build ID: {build_id}")
         log(f"Host: {host_name}")
@@ -289,7 +288,7 @@ def main():
 
         if not app_dir.exists():
             log("App directory not found; cloning template_apk...")
-            subprocess.run(['git','clone','https://github.com/sudo-self/template_apk.git', str(app_dir)], check=True)
+            subprocess.run(['git','clone','https://github.com/sudo-self/template_apk.git', str(app_dir.parent)], check=True)
 
         package_name = generate_package_name(host_name)
         build_gradle = app_dir / 'build.gradle'
@@ -322,6 +321,7 @@ def main():
 
 if __name__=='__main__':
     sys.exit(main())
+
 
 
 
