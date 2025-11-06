@@ -30,7 +30,6 @@ def generate_package_name(host_name: str):
     try:
         clean_host = host_name.replace('https://', '').replace('http://', '').replace('www.', '')
         clean_host = clean_host.split('/')[0].split('?')[0].split(':')[0]
-
         parts = [p for p in clean_host.split('.') if p]
         if len(parts) >= 2:
             package_name = '.'.join(reversed(parts))
@@ -217,7 +216,6 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             if create_webp_icon(img, dir_path/'ic_launcher.webp', size): created_count+=1
             if create_webp_icon(img, dir_path/'ic_launcher_round.webp', size): created_count+=1
 
-        # adaptive icon XML
         xml_dir = res_dir / 'mipmap-anydpi-v26'
         xml_dir.mkdir(parents=True, exist_ok=True)
         xml_content = """<?xml version="1.0" encoding="utf-8"?>
@@ -275,6 +273,7 @@ def main():
         icon_choice = os.getenv('ICON_CHOICE','phone')
         icon_base64 = os.getenv('ICON_BASE64')
         publish_release = os.getenv('PUBLISH_RELEASE','false').lower()=='true'
+        app_dir = Path(os.getenv('APP_DIR', 'android-project'))
 
         log(f"Build ID: {build_id}")
         log(f"Host: {host_name}")
@@ -286,18 +285,12 @@ def main():
         log(f"Background Color: {background_color}")
         log(f"Icon Choice: {icon_choice}")
         log(f"Icon Base64 provided: {'Yes' if icon_base64 else 'No'}")
-
-        # Ensure /app exists
-        app_dir = Path('app')
-        if not app_dir.exists():
-            log("App directory not found; cloning template_apk...")
-            subprocess.run(['git','clone','https://github.com/sudo-self/template_apk.git','app'], check=True)
-        if not app_dir.exists():
-            log(f"ERROR: App directory still missing at {app_dir.resolve()}")
-            return 1
         log(f"Using app directory: {app_dir.resolve()}")
 
-        # Customize project
+        if not app_dir.exists():
+            log("App directory not found; cloning template_apk...")
+            subprocess.run(['git','clone','https://github.com/sudo-self/template_apk.git', str(app_dir)], check=True)
+
         package_name = generate_package_name(host_name)
         build_gradle = app_dir / 'build.gradle'
         update_twa_manifest_in_gradle(build_gradle, package_name)
@@ -308,7 +301,6 @@ def main():
         update_java_kotlin_package(app_dir, old_package, package_name)
         set_launcher_icons(app_dir, icon_choice, icon_base64)
 
-        # Optional release
         if publish_release:
             github_repo = read_env_or_fail('GITHUB_REPO')
             github_token = read_env_or_fail('GITHUB_TOKEN')
@@ -330,6 +322,7 @@ def main():
 
 if __name__=='__main__':
     sys.exit(main())
+
 
 
 
