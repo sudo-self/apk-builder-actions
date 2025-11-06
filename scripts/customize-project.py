@@ -6,12 +6,15 @@ import sys
 from pathlib import Path
 import traceback
 import base64
-from PIL import Image
+from PIL import Image, ImageDraw
 import io
 import urllib.request
 import subprocess
 import requests
 
+# -----------------------------
+# Logging
+# -----------------------------
 def log(msg):
     print(f"[CUSTOMIZE] {msg}")
 
@@ -170,6 +173,12 @@ def create_webp_icon(image: Image.Image, output_path: Path, size: int):
         log(f"ERROR creating WebP icon {output_path}: {e}")
         return False
 
+def generate_placeholder_icon(size=512):
+    img = Image.new('RGBA', (size, size), (50, 50, 50, 255))
+    draw = ImageDraw.Draw(img)
+    draw.text((size//4, size//2 - 20), "APP", fill=(200, 200, 200, 255))
+    return img
+
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
     res_dir = app_dir / 'src/main/res'
     if not res_dir.exists():
@@ -201,8 +210,8 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
                 log(f"ERROR loading downloaded icon: {e}")
 
     if img is None:
-        log("No icon available; using default template")
-        return True
+        log("No icon available; generating placeholder icon")
+        img = generate_placeholder_icon()
 
     sizes = {'mipmap-mdpi':48,'mipmap-hdpi':72,'mipmap-xhdpi':96,'mipmap-xxhdpi':144,'mipmap-xxxhdpi':192}
     total_expected = len(sizes)*2+2
@@ -225,6 +234,18 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
         (xml_dir/'ic_launcher.xml').write_text(xml_content)
         (xml_dir/'ic_launcher_round.xml').write_text(xml_round)
         created_count +=2
+
+        # CREATE BACKGROUND DRAWABLES
+        drawable_dir = res_dir / 'drawable'
+        drawable_dir.mkdir(parents=True, exist_ok=True)
+        bg_color = os.getenv('BACKGROUND_COLOR','#FFFFFF')
+        bg_content = f"""<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="{bg_color}"/>
+</shape>"""
+        (drawable_dir / 'ic_launcher_background.xml').write_text(bg_content)
+        (drawable_dir / 'ic_launcher_round_background.xml').write_text(bg_content)
+        log("Created adaptive icon background drawables")
 
         log(f"Icon creation: {created_count}/{total_expected} successful")
         return True
@@ -271,8 +292,7 @@ def main():
         icon_choice = os.getenv('ICON_CHOICE','phone')
         icon_base64 = os.getenv('ICON_BASE64')
         publish_release = os.getenv('PUBLISH_RELEASE','false').lower()=='true'
-        # FIX: point to actual app folder
-        app_dir = Path(os.getenv('APP_DIR', 'android-project/app'))
+        app_dir = Path(os.getenv('APP_DIR', 'android-project'))
 
         log(f"Build ID: {build_id}")
         log(f"Host: {host_name}")
@@ -288,7 +308,7 @@ def main():
 
         if not app_dir.exists():
             log("App directory not found; cloning template_apk...")
-            subprocess.run(['git','clone','https://github.com/sudo-self/template_apk.git', str(app_dir.parent)], check=True)
+            subprocess.run(['git','clone','https://github.com/sudo-self/template_apk.git', str(app_dir)], check=True)
 
         package_name = generate_package_name(host_name)
         build_gradle = app_dir / 'build.gradle'
@@ -321,6 +341,7 @@ def main():
 
 if __name__=='__main__':
     sys.exit(main())
+
 
 
 
