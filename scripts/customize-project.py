@@ -173,6 +173,97 @@ def create_webp_icon(image: Image.Image, output_path: Path, size: int):
         log(f"ERROR creating WebP icon {output_path}: {e}")
         return False
 
+def create_phone_foreground_icon(res_dir: Path):
+    """Create the phone foreground vector drawable"""
+    drawable_dir = res_dir / 'drawable'
+    drawable_dir.mkdir(parents=True, exist_ok=True)
+    
+    phone_foreground_content = '''<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:pathData="M24,24L84,24L84,84L24,84z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:endX="85.84757"
+                android:endY="92.4963"
+                android:startX="42.9492"
+                android:startY="49.59793"
+                android:type="linear">
+                <item
+                    android:color="#44000000"
+                    android:offset="0.0" />
+                <item
+                    android:color="#00000000"
+                    android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:fillColor="#3B82F6"
+        android:fillType="nonZero"
+        android:pathData="M32,32L76,32L76,76L32,76z"
+        android:strokeWidth="1"
+        android:strokeColor="#00000000" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="nonZero"
+        android:pathData="M54,40L54,68"
+        android:strokeWidth="3"
+        android:strokeColor="#FFFFFF" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M50,34a4,4 0,1 1,8 0a4,4 0,1 1,-8 0z" />
+</vector>'''
+    
+    phone_foreground_path = drawable_dir / 'ic_launcher_phone_foreground.xml'
+    phone_foreground_path.write_text(phone_foreground_content)
+    log("Created phone foreground vector icon")
+    return True
+
+def create_adaptive_icon_config(res_dir: Path):
+    """Create the adaptive icon configuration for API 26+"""
+    mipmap_v26_dir = res_dir / 'mipmap-anydpi-v26'
+    mipmap_v26_dir.mkdir(parents=True, exist_ok=True)
+    
+    adaptive_icon_content = '''<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background"/>
+    <foreground android:drawable="@drawable/ic_launcher_phone_foreground"/>
+</adaptive-icon>'''
+    
+    adaptive_icon_path = mipmap_v26_dir / 'ic_launcher.xml'
+    adaptive_icon_path.write_text(adaptive_icon_content)
+    log("Created adaptive icon configuration for API 26+")
+    return True
+
+def create_launcher_background_color(res_dir: Path):
+    """Create the launcher background color resource"""
+    colors_path = res_dir / 'values/colors.xml'
+    
+    # Read existing colors or create new
+    if colors_path.exists():
+        content = colors_path.read_text()
+        # Check if ic_launcher_background already exists
+        if 'ic_launcher_background' not in content:
+            # Add it before the closing </resources> tag
+            content = content.replace('</resources>', '    <color name="ic_launcher_background">#3B82F6</color>\n</resources>')
+            colors_path.write_text(content)
+            log("Added ic_launcher_background color to colors.xml")
+    else:
+        # Create colors.xml if it doesn't exist
+        colors_content = '''<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ic_launcher_background">#3B82F6</color>
+</resources>'''
+        colors_path.write_text(colors_content)
+        log("Created colors.xml with ic_launcher_background")
+    
+    return True
+
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
     res_dir = app_dir / 'app/src/main/res'
     if not res_dir.exists():
@@ -217,28 +308,14 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             if create_webp_icon(img, dir_path/'ic_launcher.webp', size): created_count+=1
             if create_webp_icon(img, dir_path/'ic_launcher_round.webp', size): created_count+=1
 
-        xml_dir = res_dir / 'mipmap-anydpi-v26'
-        xml_dir.mkdir(parents=True, exist_ok=True)
-        xml_content = """<?xml version="1.0" encoding="utf-8"?>
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background"/>
-    <foreground android:drawable="@mipmap/ic_launcher"/>
-</adaptive-icon>"""
-        xml_round = xml_content.replace('ic_launcher', 'ic_launcher_round')
-        (xml_dir/'ic_launcher.xml').write_text(xml_content)
-        (xml_dir/'ic_launcher_round.xml').write_text(xml_round)
-        created_count +=2
-
-        # CREATE MISSING BACKGROUND DRAWABLES
-        drawable_dir = res_dir / 'drawable'
-        drawable_dir.mkdir(parents=True, exist_ok=True)
-        bg_content = f"""<?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="{os.getenv('BACKGROUND_COLOR','#FFFFFF')}"/>
-</shape>"""
-        (drawable_dir / 'ic_launcher_background.xml').write_text(bg_content)
-        (drawable_dir / 'ic_launcher_round_background.xml').write_text(bg_content)
-        log("Created adaptive icon background drawables")
+        # Create the phone foreground vector icon
+        create_phone_foreground_icon(res_dir)
+        
+        # Create the adaptive icon configuration
+        create_adaptive_icon_config(res_dir)
+        
+        # Create the background color
+        create_launcher_background_color(res_dir)
 
         log(f"Icon creation: {created_count}/{total_expected} successful")
         return True
