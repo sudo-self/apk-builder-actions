@@ -144,6 +144,20 @@ def download_icon_from_url(icon_url: str):
         log(f"ERROR downloading icon: {e}")
         return None
 
+def download_vector_foreground(vector_url: str):
+    """Download vector XML content"""
+    try:
+        log(f"Downloading vector from: {vector_url}")
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        req = urllib.request.Request(vector_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as response:
+            data = response.read().decode('utf-8')
+        log(f"Downloaded vector ({len(data)} bytes)")
+        return data
+    except Exception as e:
+        log(f"ERROR downloading vector: {e}")
+        return None
+
 def clean_existing_icons(res_dir: Path):
     mipmaps = ['mipmap-mdpi','mipmap-hdpi','mipmap-xhdpi','mipmap-xxhdpi','mipmap-xxxhdpi']
     count = 0
@@ -173,8 +187,33 @@ def create_webp_icon(image: Image.Image, output_path: Path, size: int):
         log(f"ERROR creating WebP icon {output_path}: {e}")
         return False
 
+def create_adaptive_foreground_icon(res_dir: Path, icon_choice: str):
+    """Create the appropriate foreground vector drawable based on icon_choice"""
+    drawable_dir = res_dir / 'drawable'
+    drawable_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Vector foreground URLs for adaptive icons
+    vector_foregrounds = {
+        "phone": "https://pub-c1de1cb456e74d6bbbee111ba9e6c757.r2.dev/phone.xml",
+        "rocket": "https://pub-c1de1cb456e74d6bbbee111ba9e6c757.r2.dev/rocket.xml",
+        "shield": "https://pub-c1de1cb456e74d6bbbee111ba9e6c757.r2.dev/shield.xml"
+    }
+    
+    if icon_choice in vector_foregrounds:
+        vector_content = download_vector_foreground(vector_foregrounds[icon_choice])
+        if vector_content:
+            foreground_path = drawable_dir / 'ic_launcher_phone_foreground.xml'
+            foreground_path.write_text(vector_content)
+            log(f"Created {icon_choice} foreground vector icon")
+            return True
+        else:
+            log(f"Failed to download {icon_choice} vector, falling back to phone")
+    
+    # Fallback to default phone foreground
+    return create_phone_foreground_icon(res_dir)
+
 def create_phone_foreground_icon(res_dir: Path):
-    """Create the phone foreground vector drawable"""
+    """Create the phone foreground vector drawable (fallback)"""
     drawable_dir = res_dir / 'drawable'
     drawable_dir.mkdir(parents=True, exist_ok=True)
     
@@ -221,7 +260,7 @@ def create_phone_foreground_icon(res_dir: Path):
     
     phone_foreground_path = drawable_dir / 'ic_launcher_phone_foreground.xml'
     phone_foreground_path.write_text(phone_foreground_content)
-    log("Created phone foreground vector icon")
+    log("Created phone foreground vector icon (fallback)")
     return True
 
 def create_adaptive_icon_config(res_dir: Path):
@@ -273,8 +312,8 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
 
     icon_urls = {
         "phone": "https://apk.jessejesse.com/phone-512.png",
-        "castle": "https://apk.jessejesse.com/castle-512.png",
-        "smile": "https://apk.jessejesse.com/smile-512.png"
+        "rocket": "https://apk.jessejesse.com/rocket-512.png",
+        "shield": "https://apk.jessejesse.com/shield-512.png"
     }
 
     img = None
@@ -308,8 +347,8 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             if create_webp_icon(img, dir_path/'ic_launcher.webp', size): created_count+=1
             if create_webp_icon(img, dir_path/'ic_launcher_round.webp', size): created_count+=1
 
-        # Create the phone foreground vector icon
-        create_phone_foreground_icon(res_dir)
+        # Create the appropriate foreground vector icon based on choice
+        create_adaptive_foreground_icon(res_dir, icon_choice)
         
         # Create the adaptive icon configuration
         create_adaptive_icon_config(res_dir)
