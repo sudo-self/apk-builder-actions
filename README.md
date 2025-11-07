@@ -1,6 +1,7 @@
 # <a href="https://apk.jessejesse.com">APP BUILDER</a>
 ## [![APK Builder](https://github.com/sudo-self/apk-builder-actions/actions/workflows/apk-builder.yml/badge.svg)](https://github.com/sudo-self/apk-builder-actions/actions/workflows/apk-builder.yml)<br>
-<img width="1512" height="856" alt="Screenshot 2025-11-07 at 09 06 20" src="https://github.com/user-attachments/assets/a0f6ac35-303a-4a4a-8423-f664aa81cd85" />
+
+<img width="1147" height="652" alt="Screenshot 2025-11-07 at 11 39 06" src="https://github.com/user-attachments/assets/bba4501d-e449-4867-836e-42a180629c9c" />
 
 ## command line npx
 
