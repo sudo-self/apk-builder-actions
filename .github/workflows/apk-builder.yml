@@ -39,18 +39,61 @@ jobs:
       - name: Clone Android template
         run: git clone https://github.com/sudo-self/template_apk.git android-project
 
-      - name: Debug - Print received payload
+      - name: Parse JSON payload
+        id: payload
         run: |
-          echo "Received payload:"
-          echo "hostName: ${{ github.event.client_payload.hostName }}"
-          echo "name: ${{ github.event.client_payload.name }}"
-          echo "launchUrl: ${{ github.event.client_payload.launchUrl }}"
-          echo "launcherName: ${{ github.event.client_payload.launcherName }}"
-          echo "themeColor: ${{ github.event.client_payload.themeColor }}"
-          echo "themeColorDark: ${{ github.event.client_payload.themeColorDark }}"
-          echo "backgroundColor: ${{ github.event.client_payload.backgroundColor }}"
-          echo "iconChoice: ${{ github.event.client_payload.iconChoice }}"
-          echo "publishRelease: ${{ github.event.client_payload.publishRelease }}"
+          echo "Received buildConfig JSON:"
+          echo '${{ github.event.client_payload.buildConfig }}'
+          
+          # Parse JSON and set environment variables
+          BUILD_CONFIG='${{ github.event.client_payload.buildConfig }}'
+          
+          # Extract values from JSON using jq
+          HOST_NAME=$(echo "$BUILD_CONFIG" | jq -r '.hostName // empty')
+          NAME=$(echo "$BUILD_CONFIG" | jq -r '.name // empty')
+          LAUNCH_URL=$(echo "$BUILD_CONFIG" | jq -r '.launchUrl // empty')
+          LAUNCHER_NAME=$(echo "$BUILD_CONFIG" | jq -r '.launcherName // empty')
+          THEME_COLOR=$(echo "$BUILD_CONFIG" | jq -r '.themeColor // empty')
+          THEME_COLOR_DARK=$(echo "$BUILD_CONFIG" | jq -r '.themeColorDark // empty')
+          BACKGROUND_COLOR=$(echo "$BUILD_CONFIG" | jq -r '.backgroundColor // empty')
+          ICON_CHOICE=$(echo "$BUILD_CONFIG" | jq -r '.iconChoice // empty')
+          ICON_URL=$(echo "$BUILD_CONFIG" | jq -r '.iconUrl // empty')
+          PUBLISH_RELEASE=$(echo "$BUILD_CONFIG" | jq -r '.publishRelease // "false"')
+          BUILD_ID=$(echo "$BUILD_CONFIG" | jq -r '.buildId // empty')
+          
+          # Set default values if empty
+          LAUNCHER_NAME=${LAUNCHER_NAME:-$NAME}
+          THEME_COLOR=${THEME_COLOR:-'#2196F3'}
+          THEME_COLOR_DARK=${THEME_COLOR_DARK:-'#1976D2'}
+          BACKGROUND_COLOR=${BACKGROUND_COLOR:-'#FFFFFF'}
+          ICON_CHOICE=${ICON_CHOICE:-'phone'}
+          PUBLISH_RELEASE=${PUBLISH_RELEASE:-'false'}
+          
+          echo "Parsed values:"
+          echo "HOST_NAME: $HOST_NAME"
+          echo "NAME: $NAME"
+          echo "LAUNCH_URL: $LAUNCH_URL"
+          echo "LAUNCHER_NAME: $LAUNCHER_NAME"
+          echo "THEME_COLOR: $THEME_COLOR"
+          echo "THEME_COLOR_DARK: $THEME_COLOR_DARK"
+          echo "BACKGROUND_COLOR: $BACKGROUND_COLOR"
+          echo "ICON_CHOICE: $ICON_CHOICE"
+          echo "ICON_URL: $ICON_URL"
+          echo "PUBLISH_RELEASE: $PUBLISH_RELEASE"
+          echo "BUILD_ID: $BUILD_ID"
+          
+          # Set environment variables for subsequent steps
+          echo "HOST_NAME=$HOST_NAME" >> $GITHUB_ENV
+          echo "APP_NAME=$NAME" >> $GITHUB_ENV
+          echo "LAUNCH_URL=$LAUNCH_URL" >> $GITHUB_ENV
+          echo "LAUNCHER_NAME=$LAUNCHER_NAME" >> $GITHUB_ENV
+          echo "THEME_COLOR=$THEME_COLOR" >> $GITHUB_ENV
+          echo "THEME_COLOR_DARK=$THEME_COLOR_DARK" >> $GITHUB_ENV
+          echo "BACKGROUND_COLOR=$BACKGROUND_COLOR" >> $GITHUB_ENV
+          echo "ICON_CHOICE=$ICON_CHOICE" >> $GITHUB_ENV
+          echo "ICON_URL=$ICON_URL" >> $GITHUB_ENV
+          echo "PUBLISH_RELEASE=$PUBLISH_RELEASE" >> $GITHUB_ENV
+          echo "BUILD_ID=$BUILD_ID" >> $GITHUB_ENV
 
       - name: Install Python dependencies
         run: |
@@ -60,16 +103,17 @@ jobs:
       - name: Customize Android project
         run: python3 scripts/customize-project.py
         env:
-          BUILD_ID: ${{ github.run_id }}
-          HOST_NAME: ${{ github.event.client_payload.hostName }}
-          LAUNCH_URL: ${{ github.event.client_payload.launchUrl }}
-          APP_NAME: ${{ github.event.client_payload.name }}
-          LAUNCHER_NAME: ${{ github.event.client_payload.launcherName || github.event.client_payload.name }}
-          THEME_COLOR: ${{ github.event.client_payload.themeColor || '#2196F3' }}
-          THEME_COLOR_DARK: ${{ github.event.client_payload.themeColorDark || '#1976D2' }}
-          BACKGROUND_COLOR: ${{ github.event.client_payload.backgroundColor || '#FFFFFF' }}
-          ICON_CHOICE: ${{ github.event.client_payload.iconChoice || 'phone' }}
-          PUBLISH_RELEASE: ${{ github.event.client_payload.publishRelease || 'false' }}
+          BUILD_ID: ${{ env.BUILD_ID || github.run_id }}
+          HOST_NAME: ${{ env.HOST_NAME }}
+          LAUNCH_URL: ${{ env.LAUNCH_URL }}
+          APP_NAME: ${{ env.APP_NAME }}
+          LAUNCHER_NAME: ${{ env.LAUNCHER_NAME }}
+          THEME_COLOR: ${{ env.THEME_COLOR }}
+          THEME_COLOR_DARK: ${{ env.THEME_COLOR_DARK }}
+          BACKGROUND_COLOR: ${{ env.BACKGROUND_COLOR }}
+          ICON_CHOICE: ${{ env.ICON_CHOICE }}
+          ICON_URL: ${{ env.ICON_URL }}
+          PUBLISH_RELEASE: ${{ env.PUBLISH_RELEASE }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.run_number }}
@@ -90,7 +134,7 @@ jobs:
             ls -la android-project/app/build/outputs/apk/
             exit 1
           fi
-          CLEAN_NAME=$(echo "${{ github.event.client_payload.name }}" | tr -c '[:alnum:]._-' '_')
+          CLEAN_NAME=$(echo "${{ env.APP_NAME }}" | tr -c '[:alnum:]._-' '_')
           OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
           cp "$APK_FILE" "./$OUTPUT_NAME"
           echo "APK created: $OUTPUT_NAME"
@@ -111,7 +155,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.event.client_payload.name }}-app
+          name: ${{ env.APP_NAME }}-app
           path: ./${{ env.apk_name }}
           retention-days: 30
 
@@ -120,9 +164,9 @@ jobs:
           echo "=========================================="
           echo "APK BUILD COMPLETED SUCCESSFULLY!"
           echo "=========================================="
-          echo "App: ${{ github.event.client_payload.name }}"
-          echo "Package: ${{ github.event.client_payload.hostName }}"
-          echo "URL: ${{ github.event.client_payload.launchUrl }}"
+          echo "App: ${{ env.APP_NAME }}"
+          echo "Package: ${{ env.HOST_NAME }}"
+          echo "URL: ${{ env.LAUNCH_URL }}"
           echo "APK: ${{ env.apk_name }}"
           echo "Download from: Artifacts section"
           echo "=========================================="
