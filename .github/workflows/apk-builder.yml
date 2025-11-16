@@ -71,6 +71,17 @@ jobs:
           PUBLISH_RELEASE: ${{ github.event.client_payload.buildConfig.publishRelease || 'false' }}
           BUILD_ID_FROM_PAYLOAD: ${{ github.event.client_payload.buildConfig.buildId }}
 
+      # -----------------------------
+      # Compute BUILD_ID safely
+      # -----------------------------
+      - name: Set BUILD_ID
+        run: |
+          if [ -n "${BUILD_ID_FROM_PAYLOAD}" ]; then
+            echo "BUILD_ID=${BUILD_ID_FROM_PAYLOAD}" >> $GITHUB_ENV
+          else
+            echo "BUILD_ID=${GITHUB_RUN_ID}" >> $GITHUB_ENV
+          fi
+
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
@@ -82,7 +93,7 @@ jobs:
       - name: Customize Android project
         run: python3 scripts/customize-project.py
         env:
-          BUILD_ID: ${{ env.BUILD_ID_FROM_PAYLOAD != '' && env.BUILD_ID_FROM_PAYLOAD || github.run_id }}
+          BUILD_ID: ${{ env.BUILD_ID }}
           HOST_NAME: ${{ env.HOST_NAME }}
           LAUNCH_URL: ${{ env.LAUNCH_URL }}
           APP_NAME: ${{ env.APP_NAME }}
@@ -117,8 +128,8 @@ jobs:
             ls -la android-project/app/build/outputs/apk/
             exit 1
           fi
-          CLEAN_NAME=$(echo "${{ env.APP_NAME }}" | tr -c '[:alnum:]._-' '_')
-          OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
+          CLEAN_NAME=$(echo "${APP_NAME}" | tr -c '[:alnum:]._-' '_')
+          OUTPUT_NAME="${CLEAN_NAME}_v1.0.${GITHUB_RUN_NUMBER}.apk"
           cp "$APK_FILE" "./$OUTPUT_NAME"
           echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
 
@@ -149,7 +160,7 @@ jobs:
         run: python3 scripts/notify-webhook.py success
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-          BUILD_ID: ${{ env.BUILD_ID_FROM_PAYLOAD != '' && env.BUILD_ID_FROM_PAYLOAD || github.run_id }}
+          BUILD_ID: ${{ env.BUILD_ID }}
           ARTIFACT_NAME: ${{ env.apk_name }}
 
       - name: Notify Webhook Failure
@@ -157,7 +168,7 @@ jobs:
         run: python3 scripts/notify-webhook.py failure
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-          BUILD_ID: ${{ env.BUILD_ID_FROM_PAYLOAD != '' && env.BUILD_ID_FROM_PAYLOAD || github.run_id }}
+          BUILD_ID: ${{ env.BUILD_ID }}
           ARTIFACT_NAME: ${{ env.apk_name }}
 
       - name: Build Summary
@@ -171,6 +182,7 @@ jobs:
           echo "APK: ${{ env.apk_name }}"
           echo "Download from: Artifacts section"
           echo "=========================================="
+
 
 
 
