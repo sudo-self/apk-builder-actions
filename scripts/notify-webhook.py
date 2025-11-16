@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import os
 import requests
 import sys
@@ -9,16 +10,17 @@ def notify_webhook(status):
     artifact_name = os.environ.get('ARTIFACT_NAME')
     
     if not webhook_url:
-        print("⚠️ No webhook URL set")
+        print("No webhook URL set")
         return
     
     payload = {
         'buildId': build_id,
-        'status': status,
-        'artifactId': artifact_name if status == 'success' else None
+        'status': status
     }
     
-    if status == 'failure':
+    if status == 'success':
+        payload['artifactId'] = artifact_name
+    elif status == 'failure':
         payload['error'] = 'Build failed in GitHub Actions'
     
     try:
@@ -26,13 +28,14 @@ def notify_webhook(status):
         if response.status_code == 200:
             print(f"✅ Webhook notified: {status}")
         else:
-            print(f"❌ Webhook failed: {response.status_code}")
+            print(f"Webhook failed: {response.status_code} {response.text}")
     except Exception as e:
-        print(f"❌ Webhook error: {e}")
+        print(f"Webhook error: {e}")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 2 or sys.argv[1] not in ('success','failure'):
         print("Usage: python notify-webhook.py <success|failure>")
         sys.exit(1)
     
     notify_webhook(sys.argv[1])
+
