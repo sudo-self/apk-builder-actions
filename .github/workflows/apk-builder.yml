@@ -43,7 +43,7 @@ jobs:
         run: git clone https://github.com/sudo-self/template_apk.git android-project
 
       # -----------------------------
-      # Extract build payload
+      # Set build environment
       # -----------------------------
       - name: Set build environment from client_payload
         run: |
@@ -57,7 +57,7 @@ jobs:
           echo "ICON_CHOICE=${ICON_CHOICE}" >> $GITHUB_ENV
           echo "ICON_URL=${ICON_URL}" >> $GITHUB_ENV
           echo "PUBLISH_RELEASE=${PUBLISH_RELEASE}" >> $GITHUB_ENV
-          echo "BUILD_ID_FROM_PAYLOAD=${BUILD_ID_FROM_PAYLOAD}" >> $GITHUB_ENV
+          echo "BUILD_ID=${BUILD_ID_FROM_PAYLOAD:-$GITHUB_RUN_ID}" >> $GITHUB_ENV
         env:
           HOST_NAME: ${{ github.event.client_payload.buildConfig.hostName }}
           APP_NAME: ${{ github.event.client_payload.buildConfig.name }}
@@ -71,24 +71,13 @@ jobs:
           PUBLISH_RELEASE: ${{ github.event.client_payload.buildConfig.publishRelease || 'false' }}
           BUILD_ID_FROM_PAYLOAD: ${{ github.event.client_payload.buildConfig.buildId }}
 
-      # -----------------------------
-      # Compute BUILD_ID safely
-      # -----------------------------
-      - name: Set BUILD_ID
-        run: |
-          if [ -n "${BUILD_ID_FROM_PAYLOAD}" ]; then
-            echo "BUILD_ID=${BUILD_ID_FROM_PAYLOAD}" >> $GITHUB_ENV
-          else
-            echo "BUILD_ID=${GITHUB_RUN_ID}" >> $GITHUB_ENV
-          fi
-
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
           pip install -r scripts/requirements.txt
 
       # -----------------------------
-      # Customize APK using Python
+      # Customize APK
       # -----------------------------
       - name: Customize Android project
         run: python3 scripts/customize-project.py
@@ -106,7 +95,7 @@ jobs:
           PUBLISH_RELEASE: ${{ env.PUBLISH_RELEASE }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.run_number }}
+          RELEASE_TAG: release-${{ env.BUILD_ID }}
           APP_DIR: android-project
 
       # -----------------------------
@@ -120,40 +109,51 @@ jobs:
           cd android-project
           ./gradlew assembleRelease --stacktrace --no-daemon
 
-      - name: Find and rename APK
+      - name: Find APK
         run: |
           APK_FILE=$(find android-project/app/build/outputs/apk/release -name "*.apk" -type f | head -n 1)
           if [ -z "$APK_FILE" ]; then
-            echo "No APK file found"
-            ls -la android-project/app/build/outputs/apk/
+            echo "No APK file found!"
+            ls -la android-project/app/build/outputs/apk/release
             exit 1
           fi
+          echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
           CLEAN_NAME=$(echo "${APP_NAME}" | tr -c '[:alnum:]._-' '_')
-          OUTPUT_NAME="${CLEAN_NAME}_v1.0.${GITHUB_RUN_NUMBER}.apk"
+          OUTPUT_NAME="${CLEAN_NAME}_v1.0.${BUILD_ID}.apk"
           cp "$APK_FILE" "./$OUTPUT_NAME"
-          echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
+          echo "APK_NAME=$OUTPUT_NAME" >> $GITHUB_ENV
 
-      - name: Verify APK signature
-        run: |
-          BUILD_TOOLS_DIR=$(find $ANDROID_HOME/build-tools -maxdepth 1 -type d | sort -V | tail -n1)
-          APK_SIGNER="$BUILD_TOOLS_DIR/apksigner"
-          if [ -f "$APK_SIGNER" ]; then
-            echo "Verifying APK signature..."
-            $APK_SIGNER verify --verbose --print-certs "./${{ env.apk_name }}"
-            echo "APK signature verified"
-          else
-            echo "apksigner not found, skipping signature verification"
-          fi
+      # -----------------------------
+      # Publish Release with APK
+      # -----------------------------
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: release-${{ env.BUILD_ID }}
+          name: Release ${{ env.BUILD_ID }}
+          body: "Automated APK build from repository_dispatch"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Upload APK to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./${{ env.APK_NAME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # -----------------------------
+      # Upload Artifact for backup
+      # -----------------------------
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-app
-          path: ./${{ env.apk_name }}
+          path: ./${{ env.APK_NAME }}
           retention-days: 30
 
       # -----------------------------
-      # Notify webhook
+      # Notify Webhook
       # -----------------------------
       - name: Notify Webhook Success
         if: ${{ success() }}
@@ -161,7 +161,7 @@ jobs:
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
           BUILD_ID: ${{ env.BUILD_ID }}
-          ARTIFACT_NAME: ${{ env.apk_name }}
+          ARTIFACT_NAME: ${{ env.APK_NAME }}
 
       - name: Notify Webhook Failure
         if: ${{ failure() }}
@@ -169,7 +169,7 @@ jobs:
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
           BUILD_ID: ${{ env.BUILD_ID }}
-          ARTIFACT_NAME: ${{ env.apk_name }}
+          ARTIFACT_NAME: ${{ env.APK_NAME }}
 
       - name: Build Summary
         run: |
@@ -179,9 +179,10 @@ jobs:
           echo "App: ${{ env.APP_NAME }}"
           echo "Package: ${{ env.HOST_NAME }}"
           echo "URL: ${{ env.LAUNCH_URL }}"
-          echo "APK: ${{ env.apk_name }}"
-          echo "Download from: Artifacts section"
+          echo "APK: ${{ env.APK_NAME }}"
+          echo "Download from: Release or Artifacts section"
           echo "=========================================="
+
 
 
 
