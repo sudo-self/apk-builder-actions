@@ -145,7 +145,6 @@ def download_icon_from_url(icon_url: str):
         return None
 
 def download_vector_foreground(vector_url: str):
-    """Download vector XML content"""
     try:
         log(f"Downloading vector from: {vector_url}")
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -170,7 +169,8 @@ def clean_existing_icons(res_dir: Path):
                         f.unlink()
                         count +=1
                         log(f"Removed {f}")
-                    except: pass
+                    except Exception:
+                        pass
     log(f"Cleaned {count} existing icons")
     return count
 
@@ -187,36 +187,9 @@ def create_webp_icon(image: Image.Image, output_path: Path, size: int):
         log(f"ERROR creating WebP icon {output_path}: {e}")
         return False
 
-def create_adaptive_foreground_icon(res_dir: Path, icon_choice: str):
-    """Create the appropriate foreground vector drawable based on icon_choice"""
-    drawable_dir = res_dir / 'drawable'
-    drawable_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Vector foreground URLs for adaptive icons
-    vector_foregrounds = {
-        "phone": "https://pub-c1de1cb456e74d6bbbee111ba9e6c757.r2.dev/phone.xml",
-        "rocket": "https://pub-c1de1cb456e74d6bbbee111ba9e6c757.r2.dev/rocket.xml",
-        "shield": "https://pub-c1de1cb456e74d6bbbee111ba9e6c757.r2.dev/shield.xml"
-    }
-    
-    if icon_choice in vector_foregrounds:
-        vector_content = download_vector_foreground(vector_foregrounds[icon_choice])
-        if vector_content:
-            foreground_path = drawable_dir / 'ic_launcher_phone_foreground.xml'
-            foreground_path.write_text(vector_content)
-            log(f"Created {icon_choice} foreground vector icon")
-            return True
-        else:
-            log(f"Failed to download {icon_choice} vector, falling back to phone")
-    
-    # Fallback to default phone foreground
-    return create_phone_foreground_icon(res_dir)
-
 def create_phone_foreground_icon(res_dir: Path):
-    """Create the phone foreground vector drawable (fallback)"""
     drawable_dir = res_dir / 'drawable'
     drawable_dir.mkdir(parents=True, exist_ok=True)
-    
     phone_foreground_content = '''<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -257,50 +230,58 @@ def create_phone_foreground_icon(res_dir: Path):
         android:fillColor="#FFFFFF"
         android:pathData="M50,34a4,4 0,1 1,8 0a4,4 0,1 1,-8 0z" />
 </vector>'''
-    
     phone_foreground_path = drawable_dir / 'ic_launcher_phone_foreground.xml'
     phone_foreground_path.write_text(phone_foreground_content)
     log("Created phone foreground vector icon (fallback)")
     return True
 
+def create_adaptive_foreground_icon(res_dir: Path, icon_choice: str):
+    drawable_dir = res_dir / 'drawable'
+    drawable_dir.mkdir(parents=True, exist_ok=True)
+    vector_foregrounds = {
+        "phone": "https://pub-c1de1cb456e74d6bbbee111ba9e6c757.r2.dev/phone.xml",
+        "rocket": "https://pub-c1de1cb456e74d6bbbee111ba9e6c757.r2.dev/rocket.xml",
+        "shield": "https://pub-c1de1cb456e74d6bbbee111ba9e6c757.r2.dev/shield.xml"
+    }
+    if icon_choice in vector_foregrounds:
+        vector_content = download_vector_foreground(vector_foregrounds[icon_choice])
+        if vector_content:
+            foreground_path = drawable_dir / 'ic_launcher_phone_foreground.xml'
+            foreground_path.write_text(vector_content)
+            log(f"Created {icon_choice} foreground vector icon")
+            return True
+        else:
+            log(f"Failed to download {icon_choice} vector, falling back to phone")
+    return create_phone_foreground_icon(res_dir)
+
 def create_adaptive_icon_config(res_dir: Path):
-    """Create the adaptive icon configuration for API 26+"""
     mipmap_v26_dir = res_dir / 'mipmap-anydpi-v26'
     mipmap_v26_dir.mkdir(parents=True, exist_ok=True)
-    
     adaptive_icon_content = '''<?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background"/>
     <foreground android:drawable="@drawable/ic_launcher_phone_foreground"/>
 </adaptive-icon>'''
-    
     adaptive_icon_path = mipmap_v26_dir / 'ic_launcher.xml'
     adaptive_icon_path.write_text(adaptive_icon_content)
     log("Created adaptive icon configuration for API 26+")
     return True
 
 def create_launcher_background_color(res_dir: Path):
-    """Create the launcher background color resource"""
     colors_path = res_dir / 'values/colors.xml'
-    
-    # Read existing colors or create new
     if colors_path.exists():
         content = colors_path.read_text()
-        # Check if ic_launcher_background already exists
         if 'ic_launcher_background' not in content:
-            # Add it before the closing </resources> tag
             content = content.replace('</resources>', '    <color name="ic_launcher_background">#3B82F6</color>\n</resources>')
             colors_path.write_text(content)
             log("Added ic_launcher_background color to colors.xml")
     else:
-        # Create colors.xml if it doesn't exist
         colors_content = '''<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#3B82F6</color>
 </resources>'''
         colors_path.write_text(colors_content)
         log("Created colors.xml with ic_launcher_background")
-    
     return True
 
 def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str = None):
@@ -309,13 +290,6 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
         log(f"ERROR: Resources directory not found at {res_dir}")
         return True
     clean_existing_icons(res_dir)
-
-    icon_urls = {
-        "phone": "https://apk.jessejesse.com/phone-512.png",
-        "rocket": "https://apk.jessejesse.com/rocket-512.png",
-        "shield": "https://apk.jessejesse.com/shield-512.png"
-    }
-
     img = None
     if icon_base64:
         try:
@@ -323,44 +297,33 @@ def set_launcher_icons(app_dir: Path, icon_choice: str = None, icon_base64: str 
             log(f"Loaded base64 icon ({img.size[0]}x{img.size[1]})")
         except Exception as e:
             log(f"ERROR decoding base64 icon: {e}")
-
-    if img is None and icon_choice in icon_urls:
-        data = download_icon_from_url(icon_urls[icon_choice])
-        if data:
-            try:
-                img = Image.open(io.BytesIO(data))
-                log(f"Loaded downloaded icon ({img.size[0]}x{img.size[1]})")
-            except Exception as e:
-                log(f"ERROR loading downloaded icon: {e}")
-
+    if img is None:
+        icon_urls = {
+            "phone": "https://apk.jessejesse.com/phone-512.png",
+            "rocket": "https://apk.jessejesse.com/rocket-512.png",
+            "shield": "https://apk.jessejesse.com/shield-512.png"
+        }
+        if icon_choice in icon_urls:
+            data = download_icon_from_url(icon_urls[icon_choice])
+            if data:
+                try:
+                    img = Image.open(io.BytesIO(data))
+                    log(f"Loaded downloaded icon ({img.size[0]}x{img.size[1]})")
+                except Exception as e:
+                    log(f"ERROR loading downloaded icon: {e}")
     if img is None:
         log("No icon available; using default template")
         return True
-
     sizes = {'mipmap-mdpi':48,'mipmap-hdpi':72,'mipmap-xhdpi':96,'mipmap-xxhdpi':144,'mipmap-xxxhdpi':192}
-    total_expected = len(sizes)*2+2
-    created_count = 0
-    try:
-        for mipmap,size in sizes.items():
-            dir_path = res_dir / mipmap
-            dir_path.mkdir(parents=True, exist_ok=True)
-            if create_webp_icon(img, dir_path/'ic_launcher.webp', size): created_count+=1
-            if create_webp_icon(img, dir_path/'ic_launcher_round.webp', size): created_count+=1
-
-        # Create the appropriate foreground vector icon based on choice
-        create_adaptive_foreground_icon(res_dir, icon_choice)
-        
-        # Create the adaptive icon configuration
-        create_adaptive_icon_config(res_dir)
-        
-        # Create the background color
-        create_launcher_background_color(res_dir)
-
-        log(f"Icon creation: {created_count}/{total_expected} successful")
-        return True
-    except Exception as e:
-        log(f"ERROR creating icons: {e}")
-        return True
+    for mipmap,size in sizes.items():
+        dir_path = res_dir / mipmap
+        dir_path.mkdir(parents=True, exist_ok=True)
+        create_webp_icon(img, dir_path/'ic_launcher.webp', size)
+        create_webp_icon(img, dir_path/'ic_launcher_round.webp', size)
+    create_adaptive_foreground_icon(res_dir, icon_choice)
+    create_adaptive_icon_config(res_dir)
+    create_launcher_background_color(res_dir)
+    return True
 
 # -----------------------------
 # GitHub Release
@@ -381,6 +344,32 @@ def publish_github_release(repo: str, tag: str, token: str, release_name: str, b
         log(f"ERROR publishing release: {e}")
         return False
 
+def upload_apk_to_release(apk_path: Path, repo: str, tag: str, token: str):
+    if not apk_path.exists():
+        log(f"APK not found at {apk_path}, skipping upload")
+        return False
+    url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+    headers = {"Authorization": f"token {token}", "Accept":"application/vnd.github+json"}
+    resp = requests.get(url, headers=headers)
+    if resp.status_code != 200:
+        log(f"Failed to get release info: {resp.status_code} {resp.text}")
+        return False
+    release_id = resp.json().get("id")
+    if not release_id:
+        log("Release ID not found, cannot upload asset")
+        return False
+    upload_url = f"https://uploads.github.com/repos/{repo}/releases/{release_id}/assets?name={apk_path.name}"
+    headers["Content-Type"] = "application/vnd.android.package-archive"
+    with open(apk_path, "rb") as f:
+        apk_data = f.read()
+    resp = requests.post(upload_url, headers=headers, data=apk_data)
+    if resp.status_code == 201:
+        log(f"APK {apk_path.name} uploaded successfully to release {tag}")
+        return True
+    else:
+        log(f"Failed to upload APK: {resp.status_code} {resp.text}")
+        return False
+
 # -----------------------------
 # Main
 # -----------------------------
@@ -388,7 +377,6 @@ def main():
     log("="*60)
     log("Starting Android project customization...")
     log("="*60)
-
     try:
         build_id = os.getenv('BUILD_ID','local')
         host_name = read_env_or_fail('HOST_NAME')
@@ -436,7 +424,9 @@ def main():
             release_name = os.getenv('RELEASE_NAME', release_tag)
             release_body = os.getenv('RELEASE_BODY', f"Automated release {release_tag}")
             log("Publishing GitHub release...")
-            publish_github_release(github_repo, release_tag, github_token, release_name, release_body)
+            if publish_github_release(github_repo, release_tag, github_token, release_name, release_body):
+                apk_file_path = Path(os.getenv('APK_PATH', 'app/build/outputs/apk/release/app-release.apk'))
+                upload_apk_to_release(apk_file_path, github_repo, release_tag, github_token)
 
         log("="*60)
         log("Android project customization completed successfully!")
@@ -450,28 +440,3 @@ def main():
 
 if __name__=='__main__':
     sys.exit(main())
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
