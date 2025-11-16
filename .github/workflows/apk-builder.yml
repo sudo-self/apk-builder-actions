@@ -39,71 +39,47 @@ jobs:
       - name: Clone Android template
         run: git clone https://github.com/sudo-self/template_apk.git android-project
 
-      - name: Parse JSON payload
-        id: payload
+      ###############################################
+      # PAYLOAD EXTRACTION
+      ###############################################
+      - name: Set build environment from client_payload
         run: |
-          echo "Received buildConfig JSON:"
-          echo '${{ github.event.client_payload.buildConfig }}'
-          
-          # Parse JSON and set environment variables
-          BUILD_CONFIG='${{ github.event.client_payload.buildConfig }}'
-          
-          # Extract values from JSON using jq
-          HOST_NAME=$(echo "$BUILD_CONFIG" | jq -r '.hostName // empty')
-          NAME=$(echo "$BUILD_CONFIG" | jq -r '.name // empty')
-          LAUNCH_URL=$(echo "$BUILD_CONFIG" | jq -r '.launchUrl // empty')
-          LAUNCHER_NAME=$(echo "$BUILD_CONFIG" | jq -r '.launcherName // empty')
-          THEME_COLOR=$(echo "$BUILD_CONFIG" | jq -r '.themeColor // empty')
-          THEME_COLOR_DARK=$(echo "$BUILD_CONFIG" | jq -r '.themeColorDark // empty')
-          BACKGROUND_COLOR=$(echo "$BUILD_CONFIG" | jq -r '.backgroundColor // empty')
-          ICON_CHOICE=$(echo "$BUILD_CONFIG" | jq -r '.iconChoice // empty')
-          ICON_URL=$(echo "$BUILD_CONFIG" | jq -r '.iconUrl // empty')
-          PUBLISH_RELEASE=$(echo "$BUILD_CONFIG" | jq -r '.publishRelease // "false"')
-          BUILD_ID=$(echo "$BUILD_CONFIG" | jq -r '.buildId // empty')
-          
-          # Set default values if empty
-          LAUNCHER_NAME=${LAUNCHER_NAME:-$NAME}
-          THEME_COLOR=${THEME_COLOR:-'#2196F3'}
-          THEME_COLOR_DARK=${THEME_COLOR_DARK:-'#1976D2'}
-          BACKGROUND_COLOR=${BACKGROUND_COLOR:-'#FFFFFF'}
-          ICON_CHOICE=${ICON_CHOICE:-'phone'}
-          PUBLISH_RELEASE=${PUBLISH_RELEASE:-'false'}
-          
-          echo "Parsed values:"
-          echo "HOST_NAME: $HOST_NAME"
-          echo "NAME: $NAME"
-          echo "LAUNCH_URL: $LAUNCH_URL"
-          echo "LAUNCHER_NAME: $LAUNCHER_NAME"
-          echo "THEME_COLOR: $THEME_COLOR"
-          echo "THEME_COLOR_DARK: $THEME_COLOR_DARK"
-          echo "BACKGROUND_COLOR: $BACKGROUND_COLOR"
-          echo "ICON_CHOICE: $ICON_CHOICE"
-          echo "ICON_URL: $ICON_URL"
-          echo "PUBLISH_RELEASE: $PUBLISH_RELEASE"
-          echo "BUILD_ID: $BUILD_ID"
-          
-          # Set environment variables for subsequent steps
-          echo "HOST_NAME=$HOST_NAME" >> $GITHUB_ENV
-          echo "APP_NAME=$NAME" >> $GITHUB_ENV
-          echo "LAUNCH_URL=$LAUNCH_URL" >> $GITHUB_ENV
-          echo "LAUNCHER_NAME=$LAUNCHER_NAME" >> $GITHUB_ENV
-          echo "THEME_COLOR=$THEME_COLOR" >> $GITHUB_ENV
-          echo "THEME_COLOR_DARK=$THEME_COLOR_DARK" >> $GITHUB_ENV
-          echo "BACKGROUND_COLOR=$BACKGROUND_COLOR" >> $GITHUB_ENV
-          echo "ICON_CHOICE=$ICON_CHOICE" >> $GITHUB_ENV
-          echo "ICON_URL=$ICON_URL" >> $GITHUB_ENV
-          echo "PUBLISH_RELEASE=$PUBLISH_RELEASE" >> $GITHUB_ENV
-          echo "BUILD_ID=$BUILD_ID" >> $GITHUB_ENV
+          echo "HOST_NAME=${HOST_NAME}" >> $GITHUB_ENV
+          echo "APP_NAME=${APP_NAME}" >> $GITHUB_ENV
+          echo "LAUNCH_URL=${LAUNCH_URL}" >> $GITHUB_ENV
+          echo "LAUNCHER_NAME=${LAUNCHER_NAME}" >> $GITHUB_ENV
+          echo "THEME_COLOR=${THEME_COLOR}" >> $GITHUB_ENV
+          echo "THEME_COLOR_DARK=${THEME_COLOR_DARK}" >> $GITHUB_ENV
+          echo "BACKGROUND_COLOR=${BACKGROUND_COLOR}" >> $GITHUB_ENV
+          echo "ICON_CHOICE=${ICON_CHOICE}" >> $GITHUB_ENV
+          echo "ICON_URL=${ICON_URL}" >> $GITHUB_ENV
+          echo "PUBLISH_RELEASE=${PUBLISH_RELEASE}" >> $GITHUB_ENV
+          echo "BUILD_ID_FROM_PAYLOAD=${BUILD_ID_FROM_PAYLOAD}" >> $GITHUB_ENV
+        env:
+          HOST_NAME: ${{ github.event.client_payload.buildConfig.hostName }}
+          APP_NAME: ${{ github.event.client_payload.buildConfig.name }}
+          LAUNCH_URL: ${{ github.event.client_payload.buildConfig.launchUrl }}
+          LAUNCHER_NAME: ${{ github.event.client_payload.buildConfig.launcherName || github.event.client_payload.buildConfig.name }}
+          THEME_COLOR: ${{ github.event.client_payload.buildConfig.themeColor || '#2196F3' }}
+          THEME_COLOR_DARK: ${{ github.event.client_payload.buildConfig.themeColorDark || '#1976D2' }}
+          BACKGROUND_COLOR: ${{ github.event.client_payload.buildConfig.backgroundColor || '#FFFFFF' }}
+          ICON_CHOICE: ${{ github.event.client_payload.buildConfig.iconChoice || 'phone' }}
+          ICON_URL: ${{ github.event.client_payload.buildConfig.iconUrl }}
+          PUBLISH_RELEASE: ${{ github.event.client_payload.buildConfig.publishRelease || 'false' }}
+          BUILD_ID_FROM_PAYLOAD: ${{ github.event.client_payload.buildConfig.buildId }}
 
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
           pip install -r scripts/requirements.txt
 
+      ####################################################
+      # CUSTOMIZE APK WITH PYTHON
+      ####################################################
       - name: Customize Android project
         run: python3 scripts/customize-project.py
         env:
-          BUILD_ID: ${{ env.BUILD_ID || github.run_id }}
+          BUILD_ID: ${{ env.BUILD_ID_FROM_PAYLOAD != '' && env.BUILD_ID_FROM_PAYLOAD || github.run_id }}
           HOST_NAME: ${{ env.HOST_NAME }}
           LAUNCH_URL: ${{ env.LAUNCH_URL }}
           APP_NAME: ${{ env.APP_NAME }}
@@ -137,7 +113,6 @@ jobs:
           CLEAN_NAME=$(echo "${{ env.APP_NAME }}" | tr -c '[:alnum:]._-' '_')
           OUTPUT_NAME="${CLEAN_NAME}_v1.0.${{ github.run_number }}.apk"
           cp "$APK_FILE" "./$OUTPUT_NAME"
-          echo "APK created: $OUTPUT_NAME"
           echo "apk_name=$OUTPUT_NAME" >> $GITHUB_ENV
 
       - name: Verify APK signature
@@ -170,4 +145,5 @@ jobs:
           echo "APK: ${{ env.apk_name }}"
           echo "Download from: Artifacts section"
           echo "=========================================="
+
 
