@@ -9,6 +9,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # -----------------------------
+      # Checkout and setup
+      # -----------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -39,9 +42,9 @@ jobs:
       - name: Clone Android template
         run: git clone https://github.com/sudo-self/template_apk.git android-project
 
-      ###############################################
-      # PAYLOAD EXTRACTION
-      ###############################################
+      # -----------------------------
+      # Extract build payload
+      # -----------------------------
       - name: Set build environment from client_payload
         run: |
           echo "HOST_NAME=${HOST_NAME}" >> $GITHUB_ENV
@@ -73,9 +76,9 @@ jobs:
           python3 -m pip install --upgrade pip
           pip install -r scripts/requirements.txt
 
-      ####################################################
-      # CUSTOMIZE APK WITH PYTHON
-      ####################################################
+      # -----------------------------
+      # Customize APK using Python
+      # -----------------------------
       - name: Customize Android project
         run: python3 scripts/customize-project.py
         env:
@@ -93,7 +96,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.run_number }}
+          APP_DIR: android-project
 
+      # -----------------------------
+      # Build APK
+      # -----------------------------
       - name: Make Gradlew Executable
         run: chmod +x android-project/gradlew
 
@@ -134,10 +141,29 @@ jobs:
           path: ./${{ env.apk_name }}
           retention-days: 30
 
+      # -----------------------------
+      # Notify webhook
+      # -----------------------------
+      - name: Notify Webhook Success
+        if: ${{ success() }}
+        run: python3 scripts/notify-webhook.py success
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          BUILD_ID: ${{ env.BUILD_ID_FROM_PAYLOAD != '' && env.BUILD_ID_FROM_PAYLOAD || github.run_id }}
+          ARTIFACT_NAME: ${{ env.apk_name }}
+
+      - name: Notify Webhook Failure
+        if: ${{ failure() }}
+        run: python3 scripts/notify-webhook.py failure
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          BUILD_ID: ${{ env.BUILD_ID_FROM_PAYLOAD != '' && env.BUILD_ID_FROM_PAYLOAD || github.run_id }}
+          ARTIFACT_NAME: ${{ env.apk_name }}
+
       - name: Build Summary
         run: |
           echo "=========================================="
-          echo "APK BUILD COMPLETED SUCCESSFULLY!"
+          echo "APK BUILD COMPLETED!"
           echo "=========================================="
           echo "App: ${{ env.APP_NAME }}"
           echo "Package: ${{ env.HOST_NAME }}"
@@ -145,5 +171,6 @@ jobs:
           echo "APK: ${{ env.apk_name }}"
           echo "Download from: Artifacts section"
           echo "=========================================="
+
 
 
