@@ -133,6 +133,7 @@ jobs:
       - name: Upload APK to GitHub Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: release-${{ env.BUILD_ID }}
           files: ./${{ env.APK_NAME }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -170,6 +171,7 @@ jobs:
           echo "URL: ${{ env.LAUNCH_URL }}"
           echo "APK: ${{ env.APK_NAME }}"
           echo "=========================================="
+
 
 
 
