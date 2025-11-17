@@ -9,9 +9,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # -----------------------------
-      # Checkout and setup
-      # -----------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -42,9 +39,6 @@ jobs:
       - name: Clone Android template
         run: git clone https://github.com/sudo-self/template_apk.git android-project
 
-      # -----------------------------
-      # Set build environment
-      # -----------------------------
       - name: Set build environment from client_payload
         run: |
           echo "HOST_NAME=${HOST_NAME}" >> $GITHUB_ENV
@@ -76,9 +70,6 @@ jobs:
           python3 -m pip install --upgrade pip
           pip install -r scripts/requirements.txt
 
-      # -----------------------------
-      # Customize APK
-      # -----------------------------
       - name: Customize Android project
         run: python3 scripts/customize-project.py
         env:
@@ -98,9 +89,6 @@ jobs:
           RELEASE_TAG: release-${{ env.BUILD_ID }}
           APP_DIR: android-project
 
-      # -----------------------------
-      # Build APK
-      # -----------------------------
       - name: Make Gradlew Executable
         run: chmod +x android-project/gradlew
 
@@ -123,9 +111,16 @@ jobs:
           cp "$APK_FILE" "./$OUTPUT_NAME"
           echo "APK_NAME=$OUTPUT_NAME" >> $GITHUB_ENV
 
-      # -----------------------------
-      # Publish Release with APK
-      # -----------------------------
+      # -------------------------
+      # FIX: Create tag BEFORE release
+      # -------------------------
+      - name: Create release tag
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git tag "release-${BUILD_ID}"
+          git push origin "release-${BUILD_ID}"
+
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -142,9 +137,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # -----------------------------
-      # Upload Artifact for backup
-      # -----------------------------
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -152,9 +144,6 @@ jobs:
           path: ./${{ env.APK_NAME }}
           retention-days: 30
 
-      # -----------------------------
-      # Notify Webhook
-      # -----------------------------
       - name: Notify Webhook Success
         if: ${{ success() }}
         run: python3 scripts/notify-webhook.py success
@@ -180,8 +169,8 @@ jobs:
           echo "Package: ${{ env.HOST_NAME }}"
           echo "URL: ${{ env.LAUNCH_URL }}"
           echo "APK: ${{ env.APK_NAME }}"
-          echo "Download from: Release or Artifacts section"
           echo "=========================================="
+
 
 
 
